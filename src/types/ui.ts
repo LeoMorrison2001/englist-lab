@@ -25,3 +25,20 @@ export type AnnotationItem = {
   note: string
   color: string
 }
+
+export type StoredArticle = {
+  id?: number
+  title: string
+  content: string
+  fileSize: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type ArticleListItem = {
+  id: number
+  title: string
+  dateLabel: string
+  sizeLabel: string
+  selected?: boolean
+}

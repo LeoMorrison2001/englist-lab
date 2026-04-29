@@ -4,6 +4,7 @@ defineProps<{
   wordCount: number
   saveLabel: string
   paragraphs: string[]
+  isEmpty: boolean
 }>()
 </script>
 
@@ -17,11 +18,15 @@ defineProps<{
 
     <section class="paper panel">
       <div class="paper__texture"></div>
-      <article class="paper__content">
+      <article v-if="!isEmpty" class="paper__content">
         <p v-for="paragraph in paragraphs" :key="paragraph" class="paper__paragraph">
           {{ paragraph }}
         </p>
       </article>
+      <div v-else class="reader-empty-state">
+        <strong>导入一篇文章开始阅读</strong>
+        <p>导入 `.txt` 文件后，这里会显示文章内容。</p>
+      </div>
     </section>
 
     <footer class="reader-footer panel">

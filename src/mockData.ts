@@ -1,6 +1,6 @@
 import { BookOpenText, GraduationCap, LibraryBig, NotebookPen, Settings2 } from 'lucide-vue-next'
 
-import type { AnnotationItem, ArticleItem, NavItem, ToolItem } from './types/ui'
+import type { AnnotationItem, NavItem, ToolItem } from './types/ui'
 
 export const navItems: NavItem[] = [
   { label: '阅读', icon: BookOpenText, active: true },
@@ -8,21 +8,6 @@ export const navItems: NavItem[] = [
   { label: '复习', icon: GraduationCap },
   { label: '词库', icon: LibraryBig },
   { label: '设置', icon: Settings2 },
-]
-
-export const articles: ArticleItem[] = [
-  { title: 'The Value of Time.txt', date: '2026-04-29', size: '12.4 KB', selected: true },
-  { title: 'A Walk in the Woods.txt', date: '2026-04-27', size: '9.8 KB' },
-  { title: 'How to Build Good Habits.txt', date: '2026-04-25', size: '11.2 KB' },
-  { title: 'The Power of Positivity.txt', date: '2026-04-22', size: '10.1 KB' },
-  { title: 'Why We Sleep.txt', date: '2026-04-18', size: '7.3 KB' },
-  { title: 'The Future of Technology and Human Learning.txt', date: '2026-04-16', size: '13.6 KB' },
-  { title: 'Success Is a Choice.txt', date: '2026-04-12', size: '9.2 KB' },
-  { title: 'How Small Actions Create Big Results.txt', date: '2026-04-10', size: '10.8 KB' },
-  { title: 'The Art of Staying Focused.txt', date: '2026-04-08', size: '8.9 KB' },
-  { title: 'Why Reading Changes the Brain.txt', date: '2026-04-05', size: '12.1 KB' },
-  { title: 'Learning English Through Daily Reflection.txt', date: '2026-04-02', size: '11.6 KB' },
-  { title: 'The Hidden Power of Consistency.txt', date: '2026-03-29', size: '9.5 KB' },
 ]
 
 export const toolItems: ToolItem[] = [
@@ -57,52 +42,4 @@ export const annotationItems: AnnotationItem[] = [
     note: '主题句；总结全文',
     color: 'red',
   },
-  {
-    type: '单词',
-    excerpt: 'make the most of every moment',
-    note: '充分利用每一刻',
-    color: 'blue',
-  },
-  {
-    type: '语法',
-    excerpt: 'When we study with a plan',
-    note: '时间状语从句',
-    color: 'orange',
-  },
-  {
-    type: '句子',
-    excerpt: 'Rest is not the opposite of progress',
-    note: '适合摘抄的表达句',
-    color: 'yellow',
-  },
-  {
-    type: '重点',
-    excerpt: 'the wise use of time becomes a form of self-respect',
-    note: '总结段核心观点',
-    color: 'red',
-  },
-  {
-    type: '单词',
-    excerpt: 'quietly consume it',
-    note: '悄然消耗掉它',
-    color: 'blue',
-  },
-  {
-    type: '语法',
-    excerpt: 'what makes progress sustainable',
-    note: 'what 引导宾语从句',
-    color: 'orange',
-  },
-]
-
-export const paperParagraphs: string[] = [
-  'Time is the most valuable resource we possess. Once it is gone, it can never be retrieved. Unlike money or other materials, time is non-renewable and irreplaceable.',
-  'Many people waste time on unimportant things, only to realize its value when it is too late. Effective time management is essential for achieving our goals and living a meaningful life.',
-  "By prioritizing tasks, avoiding procrastination, and staying focused, we can make the most of every moment. Remember, it's not about how much time you have, but how you use it.",
-  'In the end, a well-spent life is a collection of well-used time. Let’s value time, make the most of it, and create a better future for ourselves.',
-  'Time does not stop for anyone. Every day presents us with twenty-four hours, and how we choose to spend them shapes the quality of our lives. Some people use time with purpose, while others allow distractions to quietly consume it.',
-  'For students, good time management is especially important. It helps us balance learning, rest, and personal growth. When we study with a plan, even difficult goals begin to feel possible and steady progress becomes easier to see.',
-  'At the same time, using time well does not mean being busy every moment. It also means knowing when to pause, reflect, and recover. Rest is not the opposite of progress; in many cases, it is what makes progress sustainable.',
-  'If we learn to focus on what matters most, we can reduce anxiety and build confidence. Small, consistent actions often create better results than short bursts of effort followed by long periods of delay or frustration.',
-  'In the long run, the wise use of time becomes a form of self-respect. It shows that we value our future, our goals, and the opportunities placed before us. To waste time carelessly is to give away something we can never earn back.',
 ]
