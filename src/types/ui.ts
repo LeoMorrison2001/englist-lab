@@ -1,5 +1,7 @@
 import type { Component } from 'vue'
 
+export type AnnotationType = 'word' | 'grammar'
+
 export type NavItem = {
   label: string
   icon: Component
@@ -7,30 +9,30 @@ export type NavItem = {
 }
 
 export type ToolItem = {
+  type: AnnotationType
   title: string
   subtitle: string
-  color: string
+  color: 'blue' | 'orange' | 'yellow' | 'red'
 }
 
 export type StoredAnnotation = {
   id: string
-  type: 'word'
+  type: AnnotationType
   text: string
   context: string
   note: string
   start: number
   end: number
-  color: 'blue'
+  color: 'blue' | 'orange'
   createdAt: string
 }
 
 export type AnnotationItem = {
   id: string
-  type: string
+  type: AnnotationType
   excerpt: string
-  context: string
   note: string
-  color: string
+  color: 'blue' | 'orange'
 }
 
 export type StoredArticle = {

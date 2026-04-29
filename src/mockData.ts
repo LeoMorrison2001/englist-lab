@@ -11,8 +11,8 @@ export const navItems: NavItem[] = [
 ]
 
 export const toolItems: ToolItem[] = [
-  { title: '单词', subtitle: '选中文本后添加标注', color: 'blue' },
-  { title: '语法', subtitle: '下一步开发', color: 'orange' },
-  { title: '句子', subtitle: '下一步开发', color: 'yellow' },
-  { title: '重点', subtitle: '下一步开发', color: 'red' },
+  { type: 'word', title: '单词', subtitle: '蓝色高亮', color: 'blue' },
+  { type: 'grammar', title: '语法', subtitle: '橙色波浪线', color: 'orange' },
+  { type: 'word', title: '句子', subtitle: '下一步开发', color: 'yellow' },
+  { type: 'word', title: '重点', subtitle: '下一步开发', color: 'red' },
 ]

@@ -9,6 +9,7 @@ import SideNav from './components/SideNav.vue'
 import { navItems, toolItems } from './mockData'
 import type {
   AnnotationItem,
+  AnnotationType,
   ArticleListItem,
   ReaderParagraph,
   StoredAnnotation,
@@ -17,6 +18,7 @@ import type {
 
 const articles = ref<StoredArticle[]>([])
 const selectedArticleId = ref<number | null>(null)
+const activeTool = ref<AnnotationType>('word')
 const isImporting = ref(false)
 const importError = ref('')
 const searchQuery = ref('')
@@ -86,9 +88,8 @@ const visibleAnnotations = computed<AnnotationItem[]>(() => {
     .sort((left, right) => left.start - right.start)
     .map((annotation) => ({
       id: annotation.id,
-      type: '单词',
+      type: annotation.type,
       excerpt: annotation.text,
-      context: annotation.context,
       note: annotation.note,
       color: annotation.color,
     }))
@@ -154,6 +155,10 @@ function selectArticle(id: number) {
   selectedArticleId.value = id
 }
 
+function selectTool(type: AnnotationType) {
+  activeTool.value = type
+}
+
 function handleProgressChange(progress: number) {
   if (!selectedArticle.value || selectedArticle.value.id == null) {
     return
@@ -179,7 +184,7 @@ function handleProgressChange(progress: number) {
   }, 180)
 }
 
-async function handleCreateWordAnnotation(payload: { start: number; end: number; text: string }) {
+async function handleCreateAnnotation(payload: { start: number; end: number; text: string; type: AnnotationType }) {
   if (!selectedArticle.value || selectedArticle.value.id == null) {
     return
   }
@@ -190,23 +195,27 @@ async function handleCreateWordAnnotation(payload: { start: number; end: number;
     return
   }
 
-  const hasSameAnnotation = selectedArticle.value.annotations.some(
+  const sameTypeAnnotations = selectedArticle.value.annotations.filter(
+    (annotation) => annotation.type === payload.type,
+  )
+
+  const hasSameAnnotation = sameTypeAnnotations.some(
     (annotation) => annotation.start === payload.start && annotation.end === payload.end,
   )
 
-  if (hasSameAnnotation || hasOverlappingAnnotation(selectedArticle.value.annotations, payload.start, payload.end)) {
+  if (hasSameAnnotation || hasOverlappingAnnotation(sameTypeAnnotations, payload.start, payload.end)) {
     return
   }
 
   const annotation: StoredAnnotation = {
     id: createId(),
-    type: 'word',
+    type: payload.type,
     text,
     context: buildAnnotationContext(selectedArticle.value.content, payload.start, payload.end),
     note: '',
     start: payload.start,
     end: payload.end,
-    color: 'blue',
+    color: payload.type === 'word' ? 'blue' : 'orange',
     createdAt: new Date().toISOString(),
   }
 
@@ -413,18 +422,21 @@ async function readTextFile(file: File) {
       :title="selectedArticle?.title ?? '未选择文章'"
       :word-count="readerWordCount"
       :save-label="saveLabel"
+      :active-tool="activeTool"
       :paragraphs="readerParagraphs"
       :annotations="selectedArticle?.annotations ?? []"
       :reading-progress="selectedArticle?.readingProgress ?? 0"
       :is-empty="!selectedArticle"
       @progress-change="handleProgressChange"
-      @create-word-annotation="handleCreateWordAnnotation"
+      @create-annotation="handleCreateAnnotation"
       @delete-annotation="handleDeleteAnnotation"
       @update-annotation-note="handleUpdateAnnotationNote"
     />
     <InspectorPanel
       :tools="toolItems"
       :annotations="visibleAnnotations"
+      :active-tool="activeTool"
+      @select-tool="selectTool"
     />
   </div>
 </template>

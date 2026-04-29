@@ -1,9 +1,14 @@
 <script setup lang="ts">
-import type { AnnotationItem, ToolItem } from '../types/ui'
+import type { AnnotationItem, AnnotationType, ToolItem } from '../types/ui'
 
 defineProps<{
   tools: ToolItem[]
   annotations: AnnotationItem[]
+  activeTool: AnnotationType
+}>()
+
+const emit = defineEmits<{
+  selectTool: [type: AnnotationType]
 }>()
 </script>
 
@@ -22,13 +27,17 @@ defineProps<{
       <div class="tool-grid">
         <button
           v-for="tool in tools"
-          :key="tool.title"
+          :key="`${tool.type}-${tool.title}`"
           class="tool-card"
           :class="[
             `tool-card--${tool.color}`,
-            { 'tool-card--disabled': tool.title !== '单词' },
+            {
+              'tool-card--active': tool.type === activeTool && (tool.title === '单词' || tool.title === '语法'),
+              'tool-card--disabled': tool.title === '句子' || tool.title === '重点',
+            },
           ]"
           type="button"
+          @click="(tool.title === '单词' || tool.title === '语法') && emit('selectTool', tool.type)"
         >
           <strong>{{ tool.title }}</strong>
           <span>{{ tool.subtitle }}</span>
@@ -38,7 +47,7 @@ defineProps<{
 
     <section class="panel-section panel-section--grow annotation-section">
       <div class="panel-section__title">
-        <h3>单词标注</h3>
+        <h3>标注列表</h3>
         <span>{{ annotations.length }}</span>
       </div>
       <div class="annotation-list">
@@ -55,8 +64,8 @@ defineProps<{
         </article>
 
         <div v-if="annotations.length === 0" class="empty-state empty-state--annotation">
-          <strong>还没有单词标注</strong>
-          <p>在正文里选中文本，然后点“标注为单词”。</p>
+          <strong>还没有标注</strong>
+          <p>先选择工具，再在正文里选中文本。</p>
         </div>
       </div>
     </section>

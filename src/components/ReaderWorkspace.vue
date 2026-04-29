@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 
-import type { ReaderParagraph, StoredAnnotation } from '../types/ui'
+import type { AnnotationType, ReaderParagraph, StoredAnnotation } from '../types/ui'
 
 const props = defineProps<{
   articleId: number | null
   title: string
   wordCount: number
   saveLabel: string
+  activeTool: AnnotationType
   paragraphs: ReaderParagraph[]
   annotations: StoredAnnotation[]
   readingProgress: number
@@ -16,7 +17,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   progressChange: [progress: number]
-  createWordAnnotation: [payload: { start: number; end: number; text: string }]
+  createAnnotation: [payload: { start: number; end: number; text: string; type: AnnotationType }]
   deleteAnnotation: [annotationId: string]
   updateAnnotationNote: [payload: { annotationId: string; note: string }]
 }>()
@@ -35,6 +36,10 @@ const activeAnnotationId = ref<string | null>(null)
 const activeAnnotationNote = ref('')
 const activeAnnotationMenu = ref<{ top: number; left: number } | null>(null)
 
+const selectionLabel = computed(() => {
+  return props.activeTool === 'word' ? '标注为单词' : '标注为语法'
+})
+
 const paragraphSegments = computed(() => {
   return props.paragraphs.map((paragraph) => ({
     ...paragraph,
@@ -51,7 +56,7 @@ const activeAnnotation = computed(() => {
 })
 
 watch(
-  () => [props.articleId, props.readingProgress, props.paragraphs.length],
+  () => [props.articleId, props.readingProgress, props.paragraphs.length, props.activeTool],
   async () => {
     await nextTick()
     restoreProgress()
@@ -102,7 +107,7 @@ function handlePaperMouseDown(event: MouseEvent) {
 
   clearSelection()
 
-  if (!target?.closest('.paper__annotation')) {
+  if (!target?.closest('.paper__annotation') && !target?.closest('.paper__grammar')) {
     closeAnnotationMenu()
   }
 }
@@ -129,7 +134,7 @@ function handleParagraphMouseUp(paragraph: ReaderParagraph, event: MouseEvent) {
   const paragraphElement = event.currentTarget as HTMLElement
   const target = event.target as HTMLElement | null
 
-  if (target?.closest('.paper__annotation')) {
+  if (target?.closest('.paper__annotation') || target?.closest('.paper__grammar')) {
     selectionDraft.value = null
     clearNativeSelection()
     return
@@ -163,7 +168,9 @@ function handleParagraphMouseUp(paragraph: ReaderParagraph, event: MouseEvent) {
   const absoluteStart = paragraph.start + localStart
   const absoluteEnd = paragraph.start + localEnd
 
-  if (hasOverlappingAnnotation(props.annotations, absoluteStart, absoluteEnd)) {
+  const sameTypeAnnotations = props.annotations.filter((annotation) => annotation.type === props.activeTool)
+
+  if (hasOverlappingAnnotation(sameTypeAnnotations, absoluteStart, absoluteEnd)) {
     selectionDraft.value = null
     clearNativeSelection()
     return
@@ -187,15 +194,16 @@ function handleParagraphMouseUp(paragraph: ReaderParagraph, event: MouseEvent) {
   }
 }
 
-function addWordAnnotation() {
+function addAnnotation() {
   if (!selectionDraft.value) {
     return
   }
 
-  emit('createWordAnnotation', {
+  emit('createAnnotation', {
     start: selectionDraft.value.start,
     end: selectionDraft.value.end,
     text: selectionDraft.value.text,
+    type: props.activeTool,
   })
 
   clearSelection()
@@ -267,38 +275,38 @@ function buildSegments(paragraph: ReaderParagraph, annotations: StoredAnnotation
     .sort((left, right) => left.start - right.start)
 
   if (relatedAnnotations.length === 0) {
-    return [{ text: paragraph.text, annotationId: null, color: null }]
+    return [{ text: paragraph.text, wordId: null, grammarId: null }]
   }
 
-  const segments: Array<{ text: string; annotationId: string | null; color: string | null }> = []
-  let cursor = paragraph.start
+  const boundarySet = new Set<number>([paragraph.start, paragraph.end])
 
   for (const annotation of relatedAnnotations) {
-    const start = Math.max(annotation.start, paragraph.start)
-    const end = Math.min(annotation.end, paragraph.end)
+    boundarySet.add(Math.max(annotation.start, paragraph.start))
+    boundarySet.add(Math.min(annotation.end, paragraph.end))
+  }
 
-    if (start > cursor) {
-      segments.push({
-        text: paragraph.text.slice(cursor - paragraph.start, start - paragraph.start),
-        annotationId: null,
-        color: null,
-      })
+  const boundaries = [...boundarySet].sort((left, right) => left - right)
+  const segments: Array<{ text: string; wordId: string | null; grammarId: string | null }> = []
+
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const start = boundaries[index]
+    const end = boundaries[index + 1]
+
+    if (end <= start) {
+      continue
     }
+
+    const wordAnnotation = relatedAnnotations.find(
+      (annotation) => annotation.type === 'word' && annotation.start <= start && annotation.end >= end,
+    )
+    const grammarAnnotation = relatedAnnotations.find(
+      (annotation) => annotation.type === 'grammar' && annotation.start <= start && annotation.end >= end,
+    )
 
     segments.push({
       text: paragraph.text.slice(start - paragraph.start, end - paragraph.start),
-      annotationId: annotation.id,
-      color: annotation.color,
-    })
-
-    cursor = end
-  }
-
-  if (cursor < paragraph.end) {
-    segments.push({
-      text: paragraph.text.slice(cursor - paragraph.start),
-      annotationId: null,
-      color: null,
+      wordId: wordAnnotation?.id ?? null,
+      grammarId: grammarAnnotation?.id ?? null,
     })
   }
 
@@ -324,12 +332,13 @@ function hasOverlappingAnnotation(annotations: StoredAnnotation[], start: number
         <button
           v-if="selectionDraft"
           class="selection-action"
+          :class="`selection-action--${activeTool}`"
           type="button"
           :style="{ top: `${selectionDraft.top}px`, left: `${selectionDraft.left}px` }"
           @mousedown.stop.prevent
-          @click.stop="addWordAnnotation"
+          @click.stop="addAnnotation"
         >
-          标注为单词
+          {{ selectionLabel }}
         </button>
 
         <div
@@ -339,12 +348,12 @@ function hasOverlappingAnnotation(annotations: StoredAnnotation[], start: number
           @mousedown.stop
         >
           <strong class="annotation-editor__title">{{ activeAnnotation.text }}</strong>
-          <p class="annotation-editor__context">{{ activeAnnotation.context }}</p>
+          <p class="annotation-editor__context">{{ activeAnnotation.type === 'word' ? '单词标注' : '语法标注' }}</p>
           <textarea
             v-model="activeAnnotationNote"
             class="annotation-editor__input"
             rows="3"
-            placeholder="给这个单词加备注"
+            placeholder="给这个标注加备注"
           />
           <div class="annotation-editor__actions">
             <button class="annotation-editor__action annotation-editor__action--primary" type="button" @click="saveActiveAnnotationNote">
@@ -363,11 +372,24 @@ function hasOverlappingAnnotation(annotations: StoredAnnotation[], start: number
           @mouseup="handleParagraphMouseUp(paragraph, $event)"
         >
           <template v-for="(segment, index) in paragraph.segments" :key="`${paragraph.id}-${index}`">
+            <span
+              v-if="segment.grammarId"
+              class="paper__grammar"
+              @click.stop="!segment.wordId && handleAnnotationClick(segment.grammarId, $event)"
+            >
+              <mark
+                v-if="segment.wordId"
+                class="paper__annotation paper__annotation--blue"
+                @click.stop="handleAnnotationClick(segment.wordId, $event)"
+              >
+                {{ segment.text }}
+              </mark>
+              <template v-else>{{ segment.text }}</template>
+            </span>
             <mark
-              v-if="segment.annotationId"
-              class="paper__annotation"
-              :class="`paper__annotation--${segment.color}`"
-              @click.stop="handleAnnotationClick(segment.annotationId, $event)"
+              v-else-if="segment.wordId"
+              class="paper__annotation paper__annotation--blue"
+              @click.stop="handleAnnotationClick(segment.wordId, $event)"
             >
               {{ segment.text }}
             </mark>
