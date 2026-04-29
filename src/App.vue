@@ -6,8 +6,9 @@ import InspectorPanel from './components/InspectorPanel.vue'
 import LibraryPanel from './components/LibraryPanel.vue'
 import ReaderWorkspace from './components/ReaderWorkspace.vue'
 import SideNav from './components/SideNav.vue'
-import { navItems, toolItems } from './mockData'
+import { annotationGroupTemplates, annotationTools, navItems } from './mockData'
 import type {
+  AnnotationGroup,
   AnnotationItem,
   AnnotationType,
   ArticleListItem,
@@ -18,7 +19,6 @@ import type {
 
 const articles = ref<StoredArticle[]>([])
 const selectedArticleId = ref<number | null>(null)
-const activeTool = ref<AnnotationType>('word')
 const isImporting = ref(false)
 const importError = ref('')
 const searchQuery = ref('')
@@ -71,6 +71,12 @@ const readingProgressPercent = computed(() => {
   return Math.round((selectedArticle.value.readingProgress ?? 0) * 100)
 })
 
+const debugDbEnabled = typeof window !== 'undefined' && window.location.search.includes('debugDb=1')
+
+const debugAnnotationsJson = computed(() => {
+  return JSON.stringify(selectedArticle.value?.annotations ?? [], null, 2)
+})
+
 const saveLabel = computed(() => {
   if (!selectedArticle.value) {
     return '等待导入文章'
@@ -79,20 +85,27 @@ const saveLabel = computed(() => {
   return `阅读进度 ${readingProgressPercent.value}%`
 })
 
-const visibleAnnotations = computed<AnnotationItem[]>(() => {
-  if (!selectedArticle.value) {
-    return []
+const annotationGroups = computed<AnnotationGroup[]>(() => {
+  const byType = new Map<AnnotationType, AnnotationItem[]>()
+
+  if (selectedArticle.value) {
+    for (const annotation of [...selectedArticle.value.annotations].sort((left, right) => left.start - right.start)) {
+      const items = byType.get(annotation.type) ?? []
+      items.push({
+        id: annotation.id,
+        type: annotation.type,
+        excerpt: annotation.text,
+        note: annotation.note,
+        color: annotation.color,
+      })
+      byType.set(annotation.type, items)
+    }
   }
 
-  return [...selectedArticle.value.annotations]
-    .sort((left, right) => left.start - right.start)
-    .map((annotation) => ({
-      id: annotation.id,
-      type: annotation.type,
-      excerpt: annotation.text,
-      note: annotation.note,
-      color: annotation.color,
-    }))
+  return annotationGroupTemplates.map((group) => ({
+    ...group,
+    items: byType.get(group.type) ?? [],
+  }))
 })
 
 onMounted(async () => {
@@ -101,6 +114,7 @@ onMounted(async () => {
 
 async function loadArticles() {
   const storedArticles = await db.articles.orderBy('updatedAt').reverse().toArray()
+  console.log('[english-lab] loadArticles', storedArticles)
   articles.value = storedArticles.map(normalizeArticle)
 
   if (storedArticles.length === 0) {
@@ -139,7 +153,7 @@ async function importFiles(files: FileList | null) {
         annotations: [],
       }
 
-      const id = await db.articles.add(article)
+      const id = await db.articles.add(toStoredArticleRecord(article))
       selectedArticleId.value = id
     }
 
@@ -153,10 +167,6 @@ async function importFiles(files: FileList | null) {
 
 function selectArticle(id: number) {
   selectedArticleId.value = id
-}
-
-function selectTool(type: AnnotationType) {
-  activeTool.value = type
 }
 
 function handleProgressChange(progress: number) {
@@ -215,19 +225,24 @@ async function handleCreateAnnotation(payload: { start: number; end: number; tex
     note: '',
     start: payload.start,
     end: payload.end,
-    color: payload.type === 'word' ? 'blue' : 'orange',
+    color: colorForType(payload.type),
     createdAt: new Date().toISOString(),
   }
 
   const nextAnnotations = [...selectedArticle.value.annotations, annotation]
+  const nextUpdatedAt = new Date().toISOString()
 
   updateArticleInMemory(selectedArticle.value.id, {
     annotations: nextAnnotations,
+    updatedAt: nextUpdatedAt,
   })
 
   await db.articles.update(selectedArticle.value.id, {
-    annotations: nextAnnotations,
+    annotations: toStoredAnnotationsRecord(nextAnnotations),
+    updatedAt: nextUpdatedAt,
   })
+
+  console.log('[english-lab] createAnnotation', payload.type, nextAnnotations)
 }
 
 async function handleDeleteAnnotation(annotationId: string) {
@@ -236,14 +251,19 @@ async function handleDeleteAnnotation(annotationId: string) {
   }
 
   const nextAnnotations = selectedArticle.value.annotations.filter((annotation) => annotation.id !== annotationId)
+  const nextUpdatedAt = new Date().toISOString()
 
   updateArticleInMemory(selectedArticle.value.id, {
     annotations: nextAnnotations,
+    updatedAt: nextUpdatedAt,
   })
 
   await db.articles.update(selectedArticle.value.id, {
-    annotations: nextAnnotations,
+    annotations: toStoredAnnotationsRecord(nextAnnotations),
+    updatedAt: nextUpdatedAt,
   })
+
+  console.log('[english-lab] deleteAnnotation', nextAnnotations)
 }
 
 async function handleUpdateAnnotationNote(payload: { annotationId: string; note: string }) {
@@ -261,14 +281,19 @@ async function handleUpdateAnnotationNote(payload: { annotationId: string; note:
       note: payload.note.trim(),
     }
   })
+  const nextUpdatedAt = new Date().toISOString()
 
   updateArticleInMemory(selectedArticle.value.id, {
     annotations: nextAnnotations,
+    updatedAt: nextUpdatedAt,
   })
 
   await db.articles.update(selectedArticle.value.id, {
-    annotations: nextAnnotations,
+    annotations: toStoredAnnotationsRecord(nextAnnotations),
+    updatedAt: nextUpdatedAt,
   })
+
+  console.log('[english-lab] updateAnnotationNote', nextAnnotations)
 }
 
 function updateArticleInMemory(id: number, patch: Partial<StoredArticle>) {
@@ -289,11 +314,77 @@ function normalizeArticle(article: StoredArticle): StoredArticle {
     ...article,
     lastReadAt: article.lastReadAt ?? null,
     readingProgress: clamp(article.readingProgress ?? 0, 0, 1),
-    annotations: (article.annotations ?? []).map((annotation) => ({
-      ...annotation,
-      note: annotation.note ?? '',
-    })),
+    annotations: (article.annotations ?? [])
+      .map((annotation) => normalizeAnnotation(annotation))
+      .filter((annotation): annotation is StoredAnnotation => annotation != null),
   }
+}
+
+function toStoredArticleRecord(article: StoredArticle): StoredArticle {
+  return {
+    ...article,
+    annotations: toStoredAnnotationsRecord(article.annotations ?? []),
+  }
+}
+
+function toStoredAnnotationsRecord(annotations: StoredAnnotation[]) {
+  return annotations.map((annotation) => ({
+    id: annotation.id,
+    type: normalizeType(annotation.type),
+    text: annotation.text,
+    context: annotation.context,
+    note: annotation.note,
+    start: annotation.start,
+    end: annotation.end,
+    color: annotation.color ?? colorForType(normalizeType(annotation.type)),
+    createdAt: annotation.createdAt,
+  }))
+}
+
+function normalizeAnnotation(annotation: Partial<StoredAnnotation> | null | undefined) {
+  if (!annotation) {
+    return null
+  }
+
+  const normalizedType = normalizeType(annotation.type ?? 'word')
+  const start = Number.isFinite(annotation.start) ? Number(annotation.start) : 0
+  const end = Number.isFinite(annotation.end) ? Number(annotation.end) : start
+
+  return {
+    id: annotation.id ?? createId(),
+    type: normalizedType,
+    text: annotation.text ?? '',
+    context: annotation.context ?? '',
+    note: annotation.note ?? '',
+    start,
+    end,
+    color: annotation.color ?? colorForType(normalizedType),
+    createdAt: annotation.createdAt ?? new Date().toISOString(),
+  }
+}
+
+function normalizeType(type: unknown): AnnotationType {
+  if (type === 'grammar' || type === 'sentence' || type === 'focus') {
+    return type
+  }
+
+  return 'word'
+}
+
+function colorForType(type: AnnotationType): 'blue' | 'orange' | 'yellow' | 'red' {
+  if (type === 'grammar') {
+    return 'orange'
+  }
+
+  if (type === 'sentence') {
+    return 'yellow'
+  }
+
+  if (type === 'focus') {
+    return 'red'
+  }
+
+  return 'blue'
 }
 
 function hasOverlappingAnnotation(annotations: StoredAnnotation[], start: number, end: number) {
@@ -422,7 +513,7 @@ async function readTextFile(file: File) {
       :title="selectedArticle?.title ?? '未选择文章'"
       :word-count="readerWordCount"
       :save-label="saveLabel"
-      :active-tool="activeTool"
+      :tools="annotationTools"
       :paragraphs="readerParagraphs"
       :annotations="selectedArticle?.annotations ?? []"
       :reading-progress="selectedArticle?.readingProgress ?? 0"
@@ -432,11 +523,7 @@ async function readTextFile(file: File) {
       @delete-annotation="handleDeleteAnnotation"
       @update-annotation-note="handleUpdateAnnotationNote"
     />
-    <InspectorPanel
-      :tools="toolItems"
-      :annotations="visibleAnnotations"
-      :active-tool="activeTool"
-      @select-tool="selectTool"
-    />
+    <InspectorPanel :groups="annotationGroups" />
+    <pre v-if="debugDbEnabled" class="debug-db">{{ debugAnnotationsJson }}</pre>
   </div>
 </template>

@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 
-import type { AnnotationType, ReaderParagraph, StoredAnnotation } from '../types/ui'
+import AnnotationSegment from './AnnotationSegment.vue'
+import type { AnnotationType, ReaderParagraph, StoredAnnotation, ToolItem } from '../types/ui'
 
 const props = defineProps<{
   articleId: number | null
   title: string
   wordCount: number
   saveLabel: string
-  activeTool: AnnotationType
+  tools: ToolItem[]
   paragraphs: ReaderParagraph[]
   annotations: StoredAnnotation[]
   readingProgress: number
@@ -36,10 +37,6 @@ const activeAnnotationId = ref<string | null>(null)
 const activeAnnotationNote = ref('')
 const activeAnnotationMenu = ref<{ top: number; left: number } | null>(null)
 
-const selectionLabel = computed(() => {
-  return props.activeTool === 'word' ? '标注为单词' : '标注为语法'
-})
-
 const paragraphSegments = computed(() => {
   return props.paragraphs.map((paragraph) => ({
     ...paragraph,
@@ -56,7 +53,7 @@ const activeAnnotation = computed(() => {
 })
 
 watch(
-  () => [props.articleId, props.readingProgress, props.paragraphs.length, props.activeTool],
+  () => [props.articleId, props.readingProgress, props.paragraphs.length],
   async () => {
     await nextTick()
     restoreProgress()
@@ -101,15 +98,55 @@ function handleScroll() {
 function handlePaperMouseDown(event: MouseEvent) {
   const target = event.target as HTMLElement | null
 
-  if (target?.closest('.selection-action') || target?.closest('.annotation-editor')) {
+  if (target?.closest('.selection-toolbar') || target?.closest('.annotation-editor')) {
     return
   }
 
   clearSelection()
 
-  if (!target?.closest('.paper__annotation') && !target?.closest('.paper__grammar')) {
+  if (!target?.closest('.paper__annotated')) {
     closeAnnotationMenu()
   }
+}
+
+function handlePaperMouseUp(event: MouseEvent) {
+  const selection = window.getSelection()
+  const target = event.target as HTMLElement | null
+
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    if (target?.closest('.paper__annotated')) {
+      selectionDraft.value = null
+      return
+    }
+
+    selectionDraft.value = null
+    return
+  }
+
+  const range = selection.getRangeAt(0)
+  const startParagraphElement = getParagraphElement(range.startContainer)
+  const endParagraphElement = getParagraphElement(range.endContainer)
+
+  if (!startParagraphElement || !endParagraphElement) {
+    selectionDraft.value = null
+    return
+  }
+
+  const paragraphId = startParagraphElement.dataset.paragraphId
+
+  if (!paragraphId || paragraphId !== endParagraphElement.dataset.paragraphId) {
+    selectionDraft.value = null
+    return
+  }
+
+  const paragraph = props.paragraphs.find((item) => item.id === paragraphId)
+
+  if (!paragraph) {
+    selectionDraft.value = null
+    return
+  }
+
+  applySelectionDraft(paragraph, range)
 }
 
 function restoreProgress() {
@@ -129,23 +166,13 @@ function restoreProgress() {
   })
 }
 
-function handleParagraphMouseUp(paragraph: ReaderParagraph, event: MouseEvent) {
-  const selection = window.getSelection()
-  const paragraphElement = event.currentTarget as HTMLElement
-  const target = event.target as HTMLElement | null
+function applySelectionDraft(paragraph: ReaderParagraph, range: Range) {
+  const paragraphElement = contentRef.value?.querySelector<HTMLElement>(`[data-paragraph-id="${paragraph.id}"]`)
 
-  if (target?.closest('.paper__annotation') || target?.closest('.paper__grammar')) {
-    selectionDraft.value = null
-    clearNativeSelection()
-    return
-  }
-
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+  if (!paragraphElement) {
     selectionDraft.value = null
     return
   }
-
-  const range = selection.getRangeAt(0)
 
   if (
     !paragraphElement.contains(range.commonAncestorContainer) ||
@@ -167,19 +194,11 @@ function handleParagraphMouseUp(paragraph: ReaderParagraph, event: MouseEvent) {
 
   const absoluteStart = paragraph.start + localStart
   const absoluteEnd = paragraph.start + localEnd
-
-  const sameTypeAnnotations = props.annotations.filter((annotation) => annotation.type === props.activeTool)
-
-  if (hasOverlappingAnnotation(sameTypeAnnotations, absoluteStart, absoluteEnd)) {
-    selectionDraft.value = null
-    clearNativeSelection()
-    return
-  }
-
   const rect = range.getBoundingClientRect()
-  const contentRect = contentRef.value?.getBoundingClientRect()
+  const paperRect = paperRef.value?.getBoundingClientRect()
 
-  if (!contentRect) {
+  if (!paperRect || !paperRef.value) {
+    selectionDraft.value = null
     return
   }
 
@@ -189,13 +208,20 @@ function handleParagraphMouseUp(paragraph: ReaderParagraph, event: MouseEvent) {
     text: selectedText,
     start: absoluteStart,
     end: absoluteEnd,
-    top: rect.top - contentRect.top - 48,
-    left: rect.left - contentRect.left,
+    top: rect.top - paperRect.top - 54 + paperRef.value.scrollTop,
+    left: rect.left - paperRect.left + paperRef.value.scrollLeft,
   }
 }
 
-function addAnnotation() {
+function createAnnotation(type: AnnotationType) {
   if (!selectionDraft.value) {
+    return
+  }
+
+  const sameTypeAnnotations = props.annotations.filter((annotation) => annotation.type === type)
+
+  if (hasOverlappingAnnotation(sameTypeAnnotations, selectionDraft.value.start, selectionDraft.value.end)) {
+    clearSelection()
     return
   }
 
@@ -203,7 +229,7 @@ function addAnnotation() {
     start: selectionDraft.value.start,
     end: selectionDraft.value.end,
     text: selectionDraft.value.text,
-    type: props.activeTool,
+    type,
   })
 
   clearSelection()
@@ -211,10 +237,10 @@ function addAnnotation() {
 
 function handleAnnotationClick(annotationId: string, event: MouseEvent) {
   const annotation = props.annotations.find((item) => item.id === annotationId)
-  const contentRect = contentRef.value?.getBoundingClientRect()
+  const paperRect = paperRef.value?.getBoundingClientRect()
   const targetRect = (event.currentTarget as HTMLElement).getBoundingClientRect()
 
-  if (!annotation || !contentRect) {
+  if (!annotation || !paperRect || !paperRef.value) {
     return
   }
 
@@ -222,8 +248,8 @@ function handleAnnotationClick(annotationId: string, event: MouseEvent) {
   activeAnnotationId.value = annotationId
   activeAnnotationNote.value = annotation.note
   activeAnnotationMenu.value = {
-    top: targetRect.bottom - contentRect.top + 10,
-    left: targetRect.left - contentRect.left,
+    top: targetRect.bottom - paperRect.top + 10 + paperRef.value.scrollTop,
+    left: targetRect.left - paperRect.left + paperRef.value.scrollLeft,
   }
 }
 
@@ -262,6 +288,14 @@ function clearNativeSelection() {
   window.getSelection()?.removeAllRanges()
 }
 
+function getParagraphElement(node: Node) {
+  if (node instanceof HTMLElement) {
+    return node.closest<HTMLElement>('.paper__paragraph')
+  }
+
+  return node.parentElement?.closest<HTMLElement>('.paper__paragraph') ?? null
+}
+
 function getOffsetWithinContainer(container: HTMLElement, targetNode: Node, targetOffset: number) {
   const range = document.createRange()
   range.selectNodeContents(container)
@@ -275,7 +309,15 @@ function buildSegments(paragraph: ReaderParagraph, annotations: StoredAnnotation
     .sort((left, right) => left.start - right.start)
 
   if (relatedAnnotations.length === 0) {
-    return [{ text: paragraph.text, wordId: null, grammarId: null }]
+    return [
+      {
+        text: paragraph.text,
+        wordId: null,
+        grammarId: null,
+        sentenceId: null,
+        focusId: null,
+      },
+    ]
   }
 
   const boundarySet = new Set<number>([paragraph.start, paragraph.end])
@@ -286,7 +328,13 @@ function buildSegments(paragraph: ReaderParagraph, annotations: StoredAnnotation
   }
 
   const boundaries = [...boundarySet].sort((left, right) => left - right)
-  const segments: Array<{ text: string; wordId: string | null; grammarId: string | null }> = []
+  const segments: Array<{
+    text: string
+    wordId: string | null
+    grammarId: string | null
+    sentenceId: string | null
+    focusId: string | null
+  }> = []
 
   for (let index = 0; index < boundaries.length - 1; index += 1) {
     const start = boundaries[index]
@@ -296,17 +344,18 @@ function buildSegments(paragraph: ReaderParagraph, annotations: StoredAnnotation
       continue
     }
 
-    const wordAnnotation = relatedAnnotations.find(
-      (annotation) => annotation.type === 'word' && annotation.start <= start && annotation.end >= end,
-    )
-    const grammarAnnotation = relatedAnnotations.find(
-      (annotation) => annotation.type === 'grammar' && annotation.start <= start && annotation.end >= end,
-    )
+    const covered = relatedAnnotations.filter((annotation) => annotation.start <= start && annotation.end >= end)
+    const word = covered.find((annotation) => annotation.type === 'word')
+    const grammar = covered.find((annotation) => annotation.type === 'grammar')
+    const sentence = covered.find((annotation) => annotation.type === 'sentence')
+    const focus = covered.find((annotation) => annotation.type === 'focus')
 
     segments.push({
       text: paragraph.text.slice(start - paragraph.start, end - paragraph.start),
-      wordId: wordAnnotation?.id ?? null,
-      grammarId: grammarAnnotation?.id ?? null,
+      wordId: word?.id ?? null,
+      grammarId: grammar?.id ?? null,
+      sentenceId: sentence?.id ?? null,
+      focusId: focus?.id ?? null,
     })
   }
 
@@ -326,77 +375,76 @@ function hasOverlappingAnnotation(annotations: StoredAnnotation[], start: number
       </div>
     </header>
 
-    <section ref="paperRef" class="paper panel" @scroll="handleScroll" @mousedown="handlePaperMouseDown">
+    <section
+      ref="paperRef"
+      class="paper panel"
+      @scroll="handleScroll"
+      @mousedown="handlePaperMouseDown"
+      @mouseup="handlePaperMouseUp"
+    >
       <div class="paper__texture"></div>
-      <article v-if="!isEmpty" ref="contentRef" class="paper__content">
+
+      <div
+        v-if="selectionDraft"
+        class="selection-toolbar"
+        :style="{ top: `${selectionDraft.top}px`, left: `${selectionDraft.left}px` }"
+        @mousedown.stop
+      >
         <button
-          v-if="selectionDraft"
-          class="selection-action"
-          :class="`selection-action--${activeTool}`"
+          v-for="tool in tools"
+          :key="tool.type"
+          class="selection-toolbar__button"
+          :class="`selection-toolbar__button--${tool.color}`"
           type="button"
-          :style="{ top: `${selectionDraft.top}px`, left: `${selectionDraft.left}px` }"
-          @mousedown.stop.prevent
-          @click.stop="addAnnotation"
+          @click="createAnnotation(tool.type)"
         >
-          {{ selectionLabel }}
+          {{ tool.title }}
         </button>
+      </div>
 
-        <div
-          v-if="activeAnnotation && activeAnnotationMenu"
-          class="annotation-editor"
-          :style="{ top: `${activeAnnotationMenu.top}px`, left: `${activeAnnotationMenu.left}px` }"
-          @mousedown.stop
-        >
-          <strong class="annotation-editor__title">{{ activeAnnotation.text }}</strong>
-          <p class="annotation-editor__context">{{ activeAnnotation.type === 'word' ? '单词标注' : '语法标注' }}</p>
-          <textarea
-            v-model="activeAnnotationNote"
-            class="annotation-editor__input"
-            rows="3"
-            placeholder="给这个标注加备注"
-          />
-          <div class="annotation-editor__actions">
-            <button class="annotation-editor__action annotation-editor__action--primary" type="button" @click="saveActiveAnnotationNote">
-              保存备注
-            </button>
-            <button class="annotation-editor__action annotation-editor__action--danger" type="button" @click="deleteActiveAnnotation">
-              删除标注
-            </button>
-          </div>
+      <div
+        v-if="activeAnnotation && activeAnnotationMenu"
+        class="annotation-editor"
+        :style="{ top: `${activeAnnotationMenu.top}px`, left: `${activeAnnotationMenu.left}px` }"
+        @mousedown.stop
+      >
+        <strong class="annotation-editor__title">{{ activeAnnotation.text }}</strong>
+        <textarea
+          v-model="activeAnnotationNote"
+          class="annotation-editor__input"
+          rows="3"
+          placeholder="给这个标注加备注"
+        />
+        <div class="annotation-editor__actions">
+          <button class="annotation-editor__action annotation-editor__action--primary" type="button" @click="saveActiveAnnotationNote">
+            保存备注
+          </button>
+          <button class="annotation-editor__action annotation-editor__action--danger" type="button" @click="deleteActiveAnnotation">
+            删除标注
+          </button>
         </div>
+      </div>
 
+      <article v-if="!isEmpty" ref="contentRef" class="paper__content">
         <p
           v-for="paragraph in paragraphSegments"
           :key="paragraph.id"
           class="paper__paragraph"
-          @mouseup="handleParagraphMouseUp(paragraph, $event)"
+          :data-paragraph-id="paragraph.id"
         >
-          <template v-for="(segment, index) in paragraph.segments" :key="`${paragraph.id}-${index}`">
-            <span
-              v-if="segment.grammarId"
-              class="paper__grammar"
-              @click.stop="!segment.wordId && handleAnnotationClick(segment.grammarId, $event)"
-            >
-              <mark
-                v-if="segment.wordId"
-                class="paper__annotation paper__annotation--blue"
-                @click.stop="handleAnnotationClick(segment.wordId, $event)"
-              >
-                {{ segment.text }}
-              </mark>
-              <template v-else>{{ segment.text }}</template>
-            </span>
-            <mark
-              v-else-if="segment.wordId"
-              class="paper__annotation paper__annotation--blue"
-              @click.stop="handleAnnotationClick(segment.wordId, $event)"
-            >
-              {{ segment.text }}
-            </mark>
-            <template v-else>{{ segment.text }}</template>
-          </template>
+          <AnnotationSegment
+            v-for="(segment, index) in paragraph.segments"
+            :key="`${paragraph.id}-${index}`"
+            :text="segment.text"
+            :word-id="segment.wordId"
+            :grammar-id="segment.grammarId"
+            :sentence-id="segment.sentenceId"
+            :focus-id="segment.focusId"
+            @annotation-click="handleAnnotationClick"
+          />
         </p>
       </article>
+
       <div v-else class="reader-empty-state">
         <strong>导入一篇文章开始阅读</strong>
         <p>导入 `.txt` 文件后，这里会显示文章内容。</p>

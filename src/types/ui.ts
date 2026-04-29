@@ -1,6 +1,6 @@
 import type { Component } from 'vue'
 
-export type AnnotationType = 'word' | 'grammar'
+export type AnnotationType = 'word' | 'grammar' | 'sentence' | 'focus'
 
 export type NavItem = {
   label: string
@@ -23,7 +23,7 @@ export type StoredAnnotation = {
   note: string
   start: number
   end: number
-  color: 'blue' | 'orange'
+  color: 'blue' | 'orange' | 'yellow' | 'red'
   createdAt: string
 }
 
@@ -32,7 +32,14 @@ export type AnnotationItem = {
   type: AnnotationType
   excerpt: string
   note: string
-  color: 'blue' | 'orange'
+  color: 'blue' | 'orange' | 'yellow' | 'red'
+}
+
+export type AnnotationGroup = {
+  type: AnnotationType
+  title: string
+  color: 'blue' | 'orange' | 'yellow' | 'red'
+  items: AnnotationItem[]
 }
 
 export type StoredArticle = {
