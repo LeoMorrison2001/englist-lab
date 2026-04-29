@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 
-import { db } from './db/articles'
 import InspectorPanel from './components/InspectorPanel.vue'
 import LibraryPanel from './components/LibraryPanel.vue'
 import ReaderWorkspace from './components/ReaderWorkspace.vue'
 import SideNav from './components/SideNav.vue'
+import { db } from './db/articles'
 import { annotationGroupTemplates, annotationTools, navItems } from './mockData'
 import type {
   AnnotationGroup,
@@ -21,7 +21,11 @@ const articles = ref<StoredArticle[]>([])
 const selectedArticleId = ref<number | null>(null)
 const isImporting = ref(false)
 const importError = ref('')
+const importNotice = ref('')
 const searchQuery = ref('')
+const focusRequest = ref<{ annotationId: string; token: number } | null>(null)
+
+let focusRequestToken = 0
 let progressSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 const selectedArticle = computed(() => {
@@ -71,12 +75,6 @@ const readingProgressPercent = computed(() => {
   return Math.round((selectedArticle.value.readingProgress ?? 0) * 100)
 })
 
-const debugDbEnabled = typeof window !== 'undefined' && window.location.search.includes('debugDb=1')
-
-const debugAnnotationsJson = computed(() => {
-  return JSON.stringify(selectedArticle.value?.annotations ?? [], null, 2)
-})
-
 const saveLabel = computed(() => {
   if (!selectedArticle.value) {
     return '等待导入文章'
@@ -114,7 +112,6 @@ onMounted(async () => {
 
 async function loadArticles() {
   const storedArticles = await db.articles.orderBy('updatedAt').reverse().toArray()
-  console.log('[english-lab] loadArticles', storedArticles)
   articles.value = storedArticles.map(normalizeArticle)
 
   if (storedArticles.length === 0) {
@@ -132,9 +129,13 @@ async function importFiles(files: FileList | null) {
   }
 
   importError.value = ''
+  importNotice.value = ''
   isImporting.value = true
 
   try {
+    const knownArticles = [...articles.value]
+    const skippedTitles: string[] = []
+
     for (const file of Array.from(files)) {
       if (!file.name.toLowerCase().endsWith('.txt')) {
         throw new Error(`仅支持导入 .txt 文件: ${file.name}`)
@@ -142,8 +143,18 @@ async function importFiles(files: FileList | null) {
 
       const now = new Date().toISOString()
       const content = normalizeTextContent(await readTextFile(file))
+      const exactDuplicate = knownArticles.find(
+        (article) => article.title === file.name && normalizeTextContent(article.content) === content,
+      )
+
+      if (exactDuplicate) {
+        skippedTitles.push(file.name)
+        continue
+      }
+
+      const title = createUniqueArticleTitle(file.name, knownArticles)
       const article: StoredArticle = {
-        title: file.name,
+        title,
         content,
         fileSize: file.size,
         createdAt: now,
@@ -154,7 +165,15 @@ async function importFiles(files: FileList | null) {
       }
 
       const id = await db.articles.add(toStoredArticleRecord(article))
+      knownArticles.unshift({ ...article, id })
       selectedArticleId.value = id
+    }
+
+    if (skippedTitles.length > 0) {
+      importNotice.value =
+        skippedTitles.length === 1
+          ? `已跳过重复文章: ${skippedTitles[0]}`
+          : `已跳过 ${skippedTitles.length} 篇重复文章`
     }
 
     await loadArticles()
@@ -167,6 +186,52 @@ async function importFiles(files: FileList | null) {
 
 function selectArticle(id: number) {
   selectedArticleId.value = id
+}
+
+async function renameArticle(payload: { id: number; title: string }) {
+  const article = articles.value.find((item) => item.id === payload.id)
+  const nextTitle = payload.title.trim()
+
+  if (!article || !nextTitle || article.title === nextTitle) {
+    return
+  }
+
+  const uniqueTitle = createUniqueArticleTitle(
+    nextTitle,
+    articles.value.filter((item) => item.id !== payload.id),
+  )
+  const nextUpdatedAt = new Date().toISOString()
+
+  updateArticleInMemory(payload.id, {
+    title: uniqueTitle,
+    updatedAt: nextUpdatedAt,
+  })
+
+  await db.articles.update(payload.id, {
+    title: uniqueTitle,
+    updatedAt: nextUpdatedAt,
+  })
+}
+
+async function deleteArticle(id: number) {
+  const article = articles.value.find((item) => item.id === id)
+
+  if (!article) {
+    return
+  }
+
+  const shouldDelete = window.confirm(`删除文章《${article.title}》后将无法恢复，是否继续？`)
+
+  if (!shouldDelete) {
+    return
+  }
+
+  await db.articles.delete(id)
+  articles.value = articles.value.filter((item) => item.id !== id)
+
+  if (selectedArticleId.value === id) {
+    selectedArticleId.value = articles.value[0]?.id ?? null
+  }
 }
 
 function handleProgressChange(progress: number) {
@@ -241,8 +306,6 @@ async function handleCreateAnnotation(payload: { start: number; end: number; tex
     annotations: toStoredAnnotationsRecord(nextAnnotations),
     updatedAt: nextUpdatedAt,
   })
-
-  console.log('[english-lab] createAnnotation', payload.type, nextAnnotations)
 }
 
 async function handleDeleteAnnotation(annotationId: string) {
@@ -262,8 +325,6 @@ async function handleDeleteAnnotation(annotationId: string) {
     annotations: toStoredAnnotationsRecord(nextAnnotations),
     updatedAt: nextUpdatedAt,
   })
-
-  console.log('[english-lab] deleteAnnotation', nextAnnotations)
 }
 
 async function handleUpdateAnnotationNote(payload: { annotationId: string; note: string }) {
@@ -292,8 +353,14 @@ async function handleUpdateAnnotationNote(payload: { annotationId: string; note:
     annotations: toStoredAnnotationsRecord(nextAnnotations),
     updatedAt: nextUpdatedAt,
   })
+}
 
-  console.log('[english-lab] updateAnnotationNote', nextAnnotations)
+function focusAnnotation(annotationId: string) {
+  focusRequestToken += 1
+  focusRequest.value = {
+    annotationId,
+    token: focusRequestToken,
+  }
 }
 
 function updateArticleInMemory(id: number, patch: Partial<StoredArticle>) {
@@ -479,6 +546,30 @@ function createId() {
   return `annotation-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+function createUniqueArticleTitle(title: string, existingArticles: Array<Pick<StoredArticle, 'title'>>) {
+  const trimmedTitle = title.trim()
+  const existingTitles = new Set(existingArticles.map((article) => article.title))
+
+  if (!existingTitles.has(trimmedTitle)) {
+    return trimmedTitle
+  }
+
+  const extensionIndex = trimmedTitle.lastIndexOf('.')
+  const hasExtension = extensionIndex > 0
+  const name = hasExtension ? trimmedTitle.slice(0, extensionIndex) : trimmedTitle
+  const extension = hasExtension ? trimmedTitle.slice(extensionIndex) : ''
+
+  let index = 2
+  let candidate = `${name} (${index})${extension}`
+
+  while (existingTitles.has(candidate)) {
+    index += 1
+    candidate = `${name} (${index})${extension}`
+  }
+
+  return candidate
+}
+
 async function readTextFile(file: File) {
   const buffer = await file.arrayBuffer()
   const bytes = new Uint8Array(buffer)
@@ -504,8 +595,11 @@ async function readTextFile(file: File) {
       :search-query="searchQuery"
       :is-importing="isImporting"
       :error-message="importError"
+      :notice-message="importNotice"
       @import-files="importFiles"
       @select-article="selectArticle"
+      @rename-article="renameArticle"
+      @delete-article="deleteArticle"
       @update-search="searchQuery = $event"
     />
     <ReaderWorkspace
@@ -517,13 +611,13 @@ async function readTextFile(file: File) {
       :paragraphs="readerParagraphs"
       :annotations="selectedArticle?.annotations ?? []"
       :reading-progress="selectedArticle?.readingProgress ?? 0"
+      :focus-request="focusRequest"
       :is-empty="!selectedArticle"
       @progress-change="handleProgressChange"
       @create-annotation="handleCreateAnnotation"
       @delete-annotation="handleDeleteAnnotation"
       @update-annotation-note="handleUpdateAnnotationNote"
     />
-    <InspectorPanel :groups="annotationGroups" />
-    <pre v-if="debugDbEnabled" class="debug-db">{{ debugAnnotationsJson }}</pre>
+    <InspectorPanel :groups="annotationGroups" @focus-annotation="focusAnnotation" />
   </div>
 </template>

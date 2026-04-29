@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const props = defineProps<{
+defineProps<{
   text: string
   wordId: string | null
   grammarId: string | null
@@ -24,21 +24,25 @@ function trigger(annotationId: string | null, event: MouseEvent) {
   <span
     v-if="grammarId"
     class="paper__annotated paper__annotated--grammar"
+    :data-annotation-id="grammarId"
     @click.stop="!wordId && !sentenceId && !focusId && trigger(grammarId, $event)"
   >
     <span
       v-if="sentenceId"
       class="paper__annotated paper__annotated--sentence"
+      :data-annotation-id="sentenceId"
       @click.stop="!wordId && !focusId && trigger(sentenceId, $event)"
     >
       <span
         v-if="focusId"
         class="paper__annotated paper__annotated--focus"
+        :data-annotation-id="focusId"
         @click.stop="!wordId && trigger(focusId, $event)"
       >
         <span
           v-if="wordId"
           class="paper__annotated paper__annotated--word"
+          :data-annotation-id="wordId"
           @click.stop="trigger(wordId, $event)"
         >
           {{ text }}
@@ -48,6 +52,7 @@ function trigger(annotationId: string | null, event: MouseEvent) {
       <span
         v-else-if="wordId"
         class="paper__annotated paper__annotated--word"
+        :data-annotation-id="wordId"
         @click.stop="trigger(wordId, $event)"
       >
         {{ text }}
@@ -57,11 +62,13 @@ function trigger(annotationId: string | null, event: MouseEvent) {
     <span
       v-else-if="focusId"
       class="paper__annotated paper__annotated--focus"
+      :data-annotation-id="focusId"
       @click.stop="!wordId && trigger(focusId, $event)"
     >
       <span
         v-if="wordId"
         class="paper__annotated paper__annotated--word"
+        :data-annotation-id="wordId"
         @click.stop="trigger(wordId, $event)"
       >
         {{ text }}
@@ -71,6 +78,7 @@ function trigger(annotationId: string | null, event: MouseEvent) {
     <span
       v-else-if="wordId"
       class="paper__annotated paper__annotated--word"
+      :data-annotation-id="wordId"
       @click.stop="trigger(wordId, $event)"
     >
       {{ text }}
@@ -80,16 +88,19 @@ function trigger(annotationId: string | null, event: MouseEvent) {
   <span
     v-else-if="sentenceId"
     class="paper__annotated paper__annotated--sentence"
+    :data-annotation-id="sentenceId"
     @click.stop="!wordId && !focusId && trigger(sentenceId, $event)"
   >
     <span
       v-if="focusId"
       class="paper__annotated paper__annotated--focus"
+      :data-annotation-id="focusId"
       @click.stop="!wordId && trigger(focusId, $event)"
     >
       <span
         v-if="wordId"
         class="paper__annotated paper__annotated--word"
+        :data-annotation-id="wordId"
         @click.stop="trigger(wordId, $event)"
       >
         {{ text }}
@@ -99,6 +110,7 @@ function trigger(annotationId: string | null, event: MouseEvent) {
     <span
       v-else-if="wordId"
       class="paper__annotated paper__annotated--word"
+      :data-annotation-id="wordId"
       @click.stop="trigger(wordId, $event)"
     >
       {{ text }}
@@ -108,11 +120,13 @@ function trigger(annotationId: string | null, event: MouseEvent) {
   <span
     v-else-if="focusId"
     class="paper__annotated paper__annotated--focus"
+    :data-annotation-id="focusId"
     @click.stop="!wordId && trigger(focusId, $event)"
   >
     <span
       v-if="wordId"
       class="paper__annotated paper__annotated--word"
+      :data-annotation-id="wordId"
       @click.stop="trigger(wordId, $event)"
     >
       {{ text }}
@@ -122,6 +136,7 @@ function trigger(annotationId: string | null, event: MouseEvent) {
   <span
     v-else-if="wordId"
     class="paper__annotated paper__annotated--word"
+    :data-annotation-id="wordId"
     @click.stop="trigger(wordId, $event)"
   >
     {{ text }}

@@ -7,6 +7,10 @@ const props = defineProps<{
   groups: AnnotationGroup[]
 }>()
 
+const emit = defineEmits<{
+  focusAnnotation: [annotationId: string]
+}>()
+
 const activeType = ref<AnnotationType>('word')
 
 const activeGroup = computed(() => {
@@ -58,15 +62,17 @@ watch(
       </div>
 
       <div class="annotation-list annotation-list--panel" :class="`annotation-list--${activeGroup.type}`">
-        <article
+        <button
           v-for="annotation in activeGroup.items"
           :key="annotation.id"
-          class="annotation-card"
+          class="annotation-card annotation-card--button"
           :class="`annotation-card--${activeGroup.color}`"
+          type="button"
+          @click="emit('focusAnnotation', annotation.id)"
         >
           <strong>{{ annotation.excerpt }}</strong>
           <p class="annotation-card__note">{{ annotation.note || '暂无备注' }}</p>
-        </article>
+        </button>
 
         <div v-if="activeGroup.items.length === 0" class="empty-state empty-state--annotation">
           <strong>暂无{{ activeGroup.title }}</strong>

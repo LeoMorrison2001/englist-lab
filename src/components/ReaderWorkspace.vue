@@ -13,6 +13,7 @@ const props = defineProps<{
   paragraphs: ReaderParagraph[]
   annotations: StoredAnnotation[]
   readingProgress: number
+  focusRequest: { annotationId: string; token: number } | null
   isEmpty: boolean
 }>()
 
@@ -36,6 +37,10 @@ const selectionDraft = ref<{
 const activeAnnotationId = ref<string | null>(null)
 const activeAnnotationNote = ref('')
 const activeAnnotationMenu = ref<{ top: number; left: number } | null>(null)
+const pulsingAnnotationId = ref<string | null>(null)
+let pulseTimer: ReturnType<typeof setTimeout> | null = null
+let focusMenuTimer: ReturnType<typeof setTimeout> | null = null
+let focusScrollTimer: ReturnType<typeof setTimeout> | null = null
 
 const paragraphSegments = computed(() => {
   return props.paragraphs.map((paragraph) => ({
@@ -53,7 +58,7 @@ const activeAnnotation = computed(() => {
 })
 
 watch(
-  () => [props.articleId, props.readingProgress, props.paragraphs.length],
+  () => [props.articleId, props.paragraphs.length],
   async () => {
     await nextTick()
     restoreProgress()
@@ -80,6 +85,18 @@ watch(
     activeAnnotationNote.value = nextAnnotation.note
   },
   { deep: true },
+)
+
+watch(
+  () => props.focusRequest?.token,
+  async () => {
+    if (!props.focusRequest?.annotationId) {
+      return
+    }
+
+    await nextTick()
+    focusAnnotationById(props.focusRequest.annotationId)
+  },
 )
 
 function handleScroll() {
@@ -236,9 +253,13 @@ function createAnnotation(type: AnnotationType) {
 }
 
 function handleAnnotationClick(annotationId: string, event: MouseEvent) {
+  openAnnotationMenu(annotationId, event.currentTarget as HTMLElement)
+}
+
+function openAnnotationMenu(annotationId: string, target: HTMLElement) {
   const annotation = props.annotations.find((item) => item.id === annotationId)
   const paperRect = paperRef.value?.getBoundingClientRect()
-  const targetRect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
 
   if (!annotation || !paperRect || !paperRef.value) {
     return
@@ -301,6 +322,65 @@ function getOffsetWithinContainer(container: HTMLElement, targetNode: Node, targ
   range.selectNodeContents(container)
   range.setEnd(targetNode, targetOffset)
   return range.toString().length
+}
+
+function focusAnnotationById(annotationId: string) {
+  if (!paperRef.value) {
+    return
+  }
+
+  const target = paperRef.value.querySelector<HTMLElement>(`[data-annotation-id="${annotationId}"]`)
+
+  if (!target) {
+    return
+  }
+
+  const anchor = target.closest<HTMLElement>('.paper__paragraph') ?? target
+  const paperRect = paperRef.value.getBoundingClientRect()
+  const anchorRect = anchor.getBoundingClientRect()
+  const targetTop = Math.max(
+    paperRef.value.scrollTop + (anchorRect.top - paperRect.top) - paperRef.value.clientHeight * 0.32,
+    0,
+  )
+
+  isRestoringScroll.value = true
+
+  paperRef.value.scrollTo({
+    top: targetTop,
+    behavior: 'smooth',
+  })
+
+  pulsingAnnotationId.value = annotationId
+
+  if (pulseTimer) {
+    clearTimeout(pulseTimer)
+  }
+
+  pulseTimer = setTimeout(() => {
+    if (pulsingAnnotationId.value === annotationId) {
+      pulsingAnnotationId.value = null
+    }
+  }, 1800)
+
+  if (focusMenuTimer) {
+    clearTimeout(focusMenuTimer)
+  }
+
+  if (focusScrollTimer) {
+    clearTimeout(focusScrollTimer)
+  }
+
+  focusScrollTimer = setTimeout(() => {
+    isRestoringScroll.value = false
+  }, 520)
+
+  focusMenuTimer = setTimeout(() => {
+    const refreshedTarget = paperRef.value?.querySelector<HTMLElement>(`[data-annotation-id="${annotationId}"]`)
+
+    if (refreshedTarget) {
+      openAnnotationMenu(annotationId, refreshedTarget)
+    }
+  }, 320)
 }
 
 function buildSegments(paragraph: ReaderParagraph, annotations: StoredAnnotation[]) {
@@ -435,6 +515,7 @@ function hasOverlappingAnnotation(annotations: StoredAnnotation[], start: number
           <AnnotationSegment
             v-for="(segment, index) in paragraph.segments"
             :key="`${paragraph.id}-${index}`"
+            :class="{ 'paper__annotated--pulse': pulsingAnnotationId && [segment.wordId, segment.grammarId, segment.sentenceId, segment.focusId].includes(pulsingAnnotationId) }"
             :text="segment.text"
             :word-id="segment.wordId"
             :grammar-id="segment.grammarId"
