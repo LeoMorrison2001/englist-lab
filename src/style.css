@@ -339,12 +339,8 @@ p {
 }
 
 .panel-section__title span,
-.reader-toolbar__status,
 .article-card span,
 .annotation-card p,
-.storage-card__meta,
-.note-card span,
-.filter-chip,
 .text-button {
   color: var(--text-soft);
   font-size: 13px;
@@ -596,17 +592,6 @@ p {
   background: linear-gradient(180deg, rgba(255, 243, 243, 0.96), rgba(255, 232, 232, 0.92));
 }
 
-.secondary-action,
-.ghost-action {
-  width: 100%;
-  margin-top: 14px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.88);
-  font-weight: 700;
-}
-
 .annotation-list {
   display: flex;
   flex-direction: column;
@@ -759,12 +744,6 @@ p {
     min-width: 86px;
   }
 
-  .theme-switch {
-    margin-top: 0;
-    width: auto;
-    min-width: 88px;
-  }
-
   .library-panel,
   .inspector-panel,
   .reader-toolbar,
@@ -778,12 +757,6 @@ p {
     align-items: flex-start;
   }
 
-  .reader-toolbar__controls,
-  .reader-footer__pager,
-  .reader-footer__zoom {
-    flex-wrap: wrap;
-  }
-
   .paper__content {
     padding: 28px 22px 48px;
     height: auto;
@@ -793,9 +766,5 @@ p {
   .paper__paragraph {
     font-size: 18px;
     line-height: 1.72;
-  }
-
-  .annotation-index {
-    display: none;
   }
 }
