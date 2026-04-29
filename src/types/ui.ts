@@ -6,22 +6,29 @@ export type NavItem = {
   active?: boolean
 }
 
-export type ArticleItem = {
-  title: string
-  date: string
-  size: string
-  selected?: boolean
-}
-
 export type ToolItem = {
   title: string
   subtitle: string
   color: string
 }
 
+export type StoredAnnotation = {
+  id: string
+  type: 'word'
+  text: string
+  context: string
+  note: string
+  start: number
+  end: number
+  color: 'blue'
+  createdAt: string
+}
+
 export type AnnotationItem = {
+  id: string
   type: string
   excerpt: string
+  context: string
   note: string
   color: string
 }
@@ -33,6 +40,9 @@ export type StoredArticle = {
   fileSize: number
   createdAt: string
   updatedAt: string
+  lastReadAt: string | null
+  readingProgress: number
+  annotations: StoredAnnotation[]
 }
 
 export type ArticleListItem = {
@@ -41,4 +51,11 @@ export type ArticleListItem = {
   dateLabel: string
   sizeLabel: string
   selected?: boolean
+}
+
+export type ReaderParagraph = {
+  id: string
+  text: string
+  start: number
+  end: number
 }

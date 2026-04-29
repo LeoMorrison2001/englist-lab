@@ -6,14 +6,21 @@ import InspectorPanel from './components/InspectorPanel.vue'
 import LibraryPanel from './components/LibraryPanel.vue'
 import ReaderWorkspace from './components/ReaderWorkspace.vue'
 import SideNav from './components/SideNav.vue'
-import { annotationItems, navItems, toolItems } from './mockData'
-import type { ArticleListItem, StoredArticle } from './types/ui'
+import { navItems, toolItems } from './mockData'
+import type {
+  AnnotationItem,
+  ArticleListItem,
+  ReaderParagraph,
+  StoredAnnotation,
+  StoredArticle,
+} from './types/ui'
 
 const articles = ref<StoredArticle[]>([])
 const selectedArticleId = ref<number | null>(null)
 const isImporting = ref(false)
 const importError = ref('')
 const searchQuery = ref('')
+let progressSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 const selectedArticle = computed(() => {
   if (selectedArticleId.value == null) {
@@ -32,13 +39,13 @@ const visibleArticles = computed<ArticleListItem[]>(() => {
     .map((article) => ({
       id: article.id as number,
       title: article.title,
-      dateLabel: formatDate(article.updatedAt),
+      dateLabel: formatDate(article.lastReadAt ?? article.updatedAt),
       sizeLabel: formatFileSize(article.fileSize),
       selected: article.id === selectedArticleId.value,
     }))
 })
 
-const readerParagraphs = computed(() => {
+const readerParagraphs = computed<ReaderParagraph[]>(() => {
   if (!selectedArticle.value) {
     return []
   }
@@ -54,12 +61,37 @@ const readerWordCount = computed(() => {
   return countWords(selectedArticle.value.content)
 })
 
+const readingProgressPercent = computed(() => {
+  if (!selectedArticle.value) {
+    return 0
+  }
+
+  return Math.round((selectedArticle.value.readingProgress ?? 0) * 100)
+})
+
 const saveLabel = computed(() => {
   if (!selectedArticle.value) {
     return '等待导入文章'
   }
 
-  return '已导入'
+  return `阅读进度 ${readingProgressPercent.value}%`
+})
+
+const visibleAnnotations = computed<AnnotationItem[]>(() => {
+  if (!selectedArticle.value) {
+    return []
+  }
+
+  return [...selectedArticle.value.annotations]
+    .sort((left, right) => left.start - right.start)
+    .map((annotation) => ({
+      id: annotation.id,
+      type: '单词',
+      excerpt: annotation.text,
+      context: annotation.context,
+      note: annotation.note,
+      color: annotation.color,
+    }))
 })
 
 onMounted(async () => {
@@ -68,7 +100,7 @@ onMounted(async () => {
 
 async function loadArticles() {
   const storedArticles = await db.articles.orderBy('updatedAt').reverse().toArray()
-  articles.value = storedArticles
+  articles.value = storedArticles.map(normalizeArticle)
 
   if (storedArticles.length === 0) {
     selectedArticleId.value = null
@@ -101,6 +133,9 @@ async function importFiles(files: FileList | null) {
         fileSize: file.size,
         createdAt: now,
         updatedAt: now,
+        lastReadAt: null,
+        readingProgress: 0,
+        annotations: [],
       }
 
       const id = await db.articles.add(article)
@@ -119,11 +154,192 @@ function selectArticle(id: number) {
   selectedArticleId.value = id
 }
 
-function splitParagraphs(content: string) {
-  return content
-    .split(/\n\s*\n/g)
-    .map((paragraph) => paragraph.replace(/\n+/g, ' ').trim())
-    .filter(Boolean)
+function handleProgressChange(progress: number) {
+  if (!selectedArticle.value || selectedArticle.value.id == null) {
+    return
+  }
+
+  const normalizedProgress = clamp(progress, 0, 1)
+  const articleId = selectedArticle.value.id
+
+  updateArticleInMemory(articleId, {
+    readingProgress: normalizedProgress,
+    lastReadAt: new Date().toISOString(),
+  })
+
+  if (progressSaveTimer) {
+    clearTimeout(progressSaveTimer)
+  }
+
+  progressSaveTimer = setTimeout(async () => {
+    await db.articles.update(articleId, {
+      readingProgress: normalizedProgress,
+      lastReadAt: new Date().toISOString(),
+    })
+  }, 180)
+}
+
+async function handleCreateWordAnnotation(payload: { start: number; end: number; text: string }) {
+  if (!selectedArticle.value || selectedArticle.value.id == null) {
+    return
+  }
+
+  const text = payload.text.trim()
+
+  if (!text) {
+    return
+  }
+
+  const hasSameAnnotation = selectedArticle.value.annotations.some(
+    (annotation) => annotation.start === payload.start && annotation.end === payload.end,
+  )
+
+  if (hasSameAnnotation || hasOverlappingAnnotation(selectedArticle.value.annotations, payload.start, payload.end)) {
+    return
+  }
+
+  const annotation: StoredAnnotation = {
+    id: createId(),
+    type: 'word',
+    text,
+    context: buildAnnotationContext(selectedArticle.value.content, payload.start, payload.end),
+    note: '',
+    start: payload.start,
+    end: payload.end,
+    color: 'blue',
+    createdAt: new Date().toISOString(),
+  }
+
+  const nextAnnotations = [...selectedArticle.value.annotations, annotation]
+
+  updateArticleInMemory(selectedArticle.value.id, {
+    annotations: nextAnnotations,
+  })
+
+  await db.articles.update(selectedArticle.value.id, {
+    annotations: nextAnnotations,
+  })
+}
+
+async function handleDeleteAnnotation(annotationId: string) {
+  if (!selectedArticle.value || selectedArticle.value.id == null) {
+    return
+  }
+
+  const nextAnnotations = selectedArticle.value.annotations.filter((annotation) => annotation.id !== annotationId)
+
+  updateArticleInMemory(selectedArticle.value.id, {
+    annotations: nextAnnotations,
+  })
+
+  await db.articles.update(selectedArticle.value.id, {
+    annotations: nextAnnotations,
+  })
+}
+
+async function handleUpdateAnnotationNote(payload: { annotationId: string; note: string }) {
+  if (!selectedArticle.value || selectedArticle.value.id == null) {
+    return
+  }
+
+  const nextAnnotations = selectedArticle.value.annotations.map((annotation) => {
+    if (annotation.id !== payload.annotationId) {
+      return annotation
+    }
+
+    return {
+      ...annotation,
+      note: payload.note.trim(),
+    }
+  })
+
+  updateArticleInMemory(selectedArticle.value.id, {
+    annotations: nextAnnotations,
+  })
+
+  await db.articles.update(selectedArticle.value.id, {
+    annotations: nextAnnotations,
+  })
+}
+
+function updateArticleInMemory(id: number, patch: Partial<StoredArticle>) {
+  articles.value = articles.value.map((article) => {
+    if (article.id !== id) {
+      return article
+    }
+
+    return {
+      ...article,
+      ...patch,
+    }
+  })
+}
+
+function normalizeArticle(article: StoredArticle): StoredArticle {
+  return {
+    ...article,
+    lastReadAt: article.lastReadAt ?? null,
+    readingProgress: clamp(article.readingProgress ?? 0, 0, 1),
+    annotations: (article.annotations ?? []).map((annotation) => ({
+      ...annotation,
+      note: annotation.note ?? '',
+    })),
+  }
+}
+
+function hasOverlappingAnnotation(annotations: StoredAnnotation[], start: number, end: number) {
+  return annotations.some((annotation) => start < annotation.end && end > annotation.start)
+}
+
+function splitParagraphs(content: string): ReaderParagraph[] {
+  const normalized = normalizeTextContent(content)
+  const paragraphs: ReaderParagraph[] = []
+  const regex = /\n\s*\n/g
+  let cursor = 0
+  let paragraphIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(normalized)) !== null) {
+    const text = normalized.slice(cursor, match.index).replace(/\n+/g, ' ').trim()
+
+    if (text) {
+      const start = paragraphs.length === 0 ? 0 : paragraphs[paragraphs.length - 1].end + 2
+      paragraphs.push({
+        id: `paragraph-${paragraphIndex}`,
+        text,
+        start,
+        end: start + text.length,
+      })
+      paragraphIndex += 1
+    }
+
+    cursor = match.index + match[0].length
+  }
+
+  const lastText = normalized.slice(cursor).replace(/\n+/g, ' ').trim()
+
+  if (lastText) {
+    const start = paragraphs.length === 0 ? 0 : paragraphs[paragraphs.length - 1].end + 2
+    paragraphs.push({
+      id: `paragraph-${paragraphIndex}`,
+      text: lastText,
+      start,
+      end: start + lastText.length,
+    })
+  }
+
+  return paragraphs
+}
+
+function buildAnnotationContext(content: string, start: number, end: number) {
+  const paragraphs = splitParagraphs(content)
+  const paragraph = paragraphs.find((item) => start >= item.start && end <= item.end)
+
+  if (!paragraph) {
+    return content.slice(Math.max(0, start - 30), Math.min(content.length, end + 30)).trim()
+  }
+
+  return paragraph.text
 }
 
 function normalizeTextContent(content: string) {
@@ -149,6 +365,18 @@ function formatFileSize(bytes: number) {
   }
 
   return `${(bytes / 1024).toFixed(1)} KB`
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function createId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+
+  return `annotation-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 async function readTextFile(file: File) {
@@ -181,12 +409,22 @@ async function readTextFile(file: File) {
       @update-search="searchQuery = $event"
     />
     <ReaderWorkspace
+      :article-id="selectedArticle?.id ?? null"
       :title="selectedArticle?.title ?? '未选择文章'"
       :word-count="readerWordCount"
       :save-label="saveLabel"
       :paragraphs="readerParagraphs"
+      :annotations="selectedArticle?.annotations ?? []"
+      :reading-progress="selectedArticle?.readingProgress ?? 0"
       :is-empty="!selectedArticle"
+      @progress-change="handleProgressChange"
+      @create-word-annotation="handleCreateWordAnnotation"
+      @delete-annotation="handleDeleteAnnotation"
+      @update-annotation-note="handleUpdateAnnotationNote"
     />
-    <InspectorPanel :tools="toolItems" :annotations="annotationItems" />
+    <InspectorPanel
+      :tools="toolItems"
+      :annotations="visibleAnnotations"
+    />
   </div>
 </template>
