@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import InspectorPanel from './components/InspectorPanel.vue'
 import LibraryPanel from './components/LibraryPanel.vue'
@@ -17,6 +17,8 @@ import type {
   StoredArticle,
 } from './types/ui'
 
+const MIN_DESKTOP_WIDTH = 1100
+
 const articles = ref<StoredArticle[]>([])
 const selectedArticleId = ref<number | null>(null)
 const isImporting = ref(false)
@@ -24,9 +26,37 @@ const importError = ref('')
 const importNotice = ref('')
 const searchQuery = ref('')
 const focusRequest = ref<{ annotationId: string; token: number } | null>(null)
+const isUnsupportedDevice = ref(false)
+const isViewportTooSmall = ref(false)
 
 let focusRequestToken = 0
 let progressSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+const shouldBlockApp = computed(() => isUnsupportedDevice.value || isViewportTooSmall.value)
+
+const blockTitle = computed(() => {
+  if (isUnsupportedDevice.value) {
+    return '请使用电脑打开此软件'
+  }
+
+  return '请放大浏览器窗口后使用'
+})
+
+const blockDescription = computed(() => {
+  if (isUnsupportedDevice.value) {
+    return '手机和平板端暂不支持完整操作。为了保证导入、阅读和标注功能正常使用，请在电脑浏览器中打开。'
+  }
+
+  return `当前窗口宽度过小。请将浏览器宽度调整到至少 ${MIN_DESKTOP_WIDTH}px，以保证导入、阅读和标注操作完整可用。`
+})
+
+const blockEyebrow = computed(() => {
+  if (isUnsupportedDevice.value) {
+    return '当前设备暂不支持'
+  }
+
+  return '当前窗口过小'
+})
 
 const selectedArticle = computed(() => {
   if (selectedArticleId.value == null) {
@@ -107,7 +137,18 @@ const annotationGroups = computed<AnnotationGroup[]>(() => {
 })
 
 onMounted(async () => {
+  updateRuntimeGuards()
+  window.addEventListener('resize', updateRuntimeGuards)
+
+  if (shouldBlockApp.value) {
+    return
+  }
+
   await loadArticles()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateRuntimeGuards)
 })
 
 async function loadArticles() {
@@ -585,10 +626,49 @@ async function readTextFile(file: File) {
 
   return new TextDecoder().decode(bytes)
 }
+
+function updateRuntimeGuards() {
+  isUnsupportedDevice.value = detectUnsupportedDevice()
+  isViewportTooSmall.value = typeof window !== 'undefined' && window.innerWidth < MIN_DESKTOP_WIDTH
+}
+
+function detectUnsupportedDevice() {
+  if (typeof navigator === 'undefined') {
+    return false
+  }
+
+  const userAgent = navigator.userAgent || ''
+  const platform = navigator.platform || ''
+  const maxTouchPoints = navigator.maxTouchPoints || 0
+
+  const isIPhone = /iPhone/i.test(userAgent)
+  const isIPad = /iPad/i.test(userAgent) || (platform === 'MacIntel' && maxTouchPoints > 1)
+  const isAndroid = /Android/i.test(userAgent)
+  const isMobileKeyword = /Mobile|Phone|Windows Phone/i.test(userAgent)
+  const isTabletKeyword = /Tablet|PlayBook|Silk/i.test(userAgent)
+
+  if (isIPhone || isIPad || isTabletKeyword) {
+    return true
+  }
+
+  if (isAndroid || isMobileKeyword) {
+    return true
+  }
+
+  return false
+}
 </script>
 
 <template>
-  <div class="app-shell">
+  <div v-if="shouldBlockApp" class="device-block">
+    <div class="device-block__card">
+      <span class="device-block__eyebrow">{{ blockEyebrow }}</span>
+      <h1>{{ blockTitle }}</h1>
+      <p>{{ blockDescription }}</p>
+    </div>
+  </div>
+
+  <div v-else class="app-shell">
     <SideNav :items="navItems" />
     <LibraryPanel
       :articles="visibleArticles"

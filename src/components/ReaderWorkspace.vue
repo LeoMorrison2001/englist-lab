@@ -4,6 +4,13 @@ import { computed, nextTick, ref, watch } from 'vue'
 import AnnotationSegment from './AnnotationSegment.vue'
 import type { AnnotationType, ReaderParagraph, StoredAnnotation, ToolItem } from '../types/ui'
 
+type SearchMatch = {
+  id: string
+  paragraphId: string
+  start: number
+  end: number
+}
+
 const props = defineProps<{
   articleId: number | null
   title: string
@@ -38,14 +45,58 @@ const activeAnnotationId = ref<string | null>(null)
 const activeAnnotationNote = ref('')
 const activeAnnotationMenu = ref<{ top: number; left: number } | null>(null)
 const pulsingAnnotationId = ref<string | null>(null)
+const searchQuery = ref('')
+const activeSearchIndex = ref(0)
+
 let pulseTimer: ReturnType<typeof setTimeout> | null = null
 let focusMenuTimer: ReturnType<typeof setTimeout> | null = null
 let focusScrollTimer: ReturnType<typeof setTimeout> | null = null
+let searchFocusTimer: ReturnType<typeof setTimeout> | null = null
+
+const searchMatches = computed<SearchMatch[]>(() => {
+  const query = searchQuery.value.trim().toLowerCase()
+
+  if (!query) {
+    return []
+  }
+
+  const matches: SearchMatch[] = []
+
+  for (const paragraph of props.paragraphs) {
+    const haystack = paragraph.text.toLowerCase()
+    let cursor = 0
+    let index = haystack.indexOf(query, cursor)
+    let count = 0
+
+    while (index !== -1) {
+      matches.push({
+        id: `${paragraph.id}-search-${count}`,
+        paragraphId: paragraph.id,
+        start: paragraph.start + index,
+        end: paragraph.start + index + query.length,
+      })
+
+      cursor = index + query.length
+      count += 1
+      index = haystack.indexOf(query, cursor)
+    }
+  }
+
+  return matches
+})
+
+const activeSearchMatchId = computed(() => {
+  if (searchMatches.value.length === 0) {
+    return null
+  }
+
+  return searchMatches.value[activeSearchIndex.value]?.id ?? searchMatches.value[0].id
+})
 
 const paragraphSegments = computed(() => {
   return props.paragraphs.map((paragraph) => ({
     ...paragraph,
-    segments: buildSegments(paragraph, props.annotations),
+    segments: buildSegments(paragraph, props.annotations, searchMatches.value, activeSearchMatchId.value),
   }))
 })
 
@@ -57,6 +108,18 @@ const activeAnnotation = computed(() => {
   return props.annotations.find((annotation) => annotation.id === activeAnnotationId.value) ?? null
 })
 
+const searchSummary = computed(() => {
+  if (!searchQuery.value.trim()) {
+    return ''
+  }
+
+  if (searchMatches.value.length === 0) {
+    return '未找到'
+  }
+
+  return `${activeSearchIndex.value + 1} / ${searchMatches.value.length}`
+})
+
 watch(
   () => [props.articleId, props.paragraphs.length],
   async () => {
@@ -64,6 +127,8 @@ watch(
     restoreProgress()
     clearSelection()
     closeAnnotationMenu()
+    searchQuery.value = ''
+    activeSearchIndex.value = 0
   },
   { immediate: true },
 )
@@ -98,6 +163,26 @@ watch(
     focusAnnotationById(props.focusRequest.annotationId)
   },
 )
+
+watch(searchQuery, async () => {
+  activeSearchIndex.value = 0
+
+  if (!searchQuery.value.trim()) {
+    return
+  }
+
+  await nextTick()
+  focusActiveSearchMatch()
+})
+
+watch(activeSearchIndex, async () => {
+  if (!searchQuery.value.trim()) {
+    return
+  }
+
+  await nextTick()
+  focusActiveSearchMatch()
+})
 
 function handleScroll() {
   if (isRestoringScroll.value || !paperRef.value) {
@@ -383,12 +468,57 @@ function focusAnnotationById(annotationId: string) {
   }, 320)
 }
 
-function buildSegments(paragraph: ReaderParagraph, annotations: StoredAnnotation[]) {
+function focusActiveSearchMatch() {
+  if (!paperRef.value || !activeSearchMatchId.value) {
+    return
+  }
+
+  const target = paperRef.value.querySelector<HTMLElement>(`[data-search-match-id="${activeSearchMatchId.value}"]`)
+
+  if (!target) {
+    return
+  }
+
+  const anchor = target.closest<HTMLElement>('.paper__paragraph') ?? target
+
+  if (searchFocusTimer) {
+    clearTimeout(searchFocusTimer)
+  }
+
+  isRestoringScroll.value = true
+  anchor.scrollIntoView({
+    block: 'center',
+    behavior: 'smooth',
+  })
+
+  searchFocusTimer = setTimeout(() => {
+    isRestoringScroll.value = false
+  }, 420)
+}
+
+function moveSearch(delta: number) {
+  if (searchMatches.value.length === 0) {
+    return
+  }
+
+  activeSearchIndex.value =
+    (activeSearchIndex.value + delta + searchMatches.value.length) % searchMatches.value.length
+}
+
+function buildSegments(
+  paragraph: ReaderParagraph,
+  annotations: StoredAnnotation[],
+  matches: SearchMatch[],
+  activeSearchId: string | null,
+) {
   const relatedAnnotations = annotations
     .filter((annotation) => annotation.start < paragraph.end && annotation.end > paragraph.start)
     .sort((left, right) => left.start - right.start)
+  const relatedMatches = matches
+    .filter((match) => match.start < paragraph.end && match.end > paragraph.start)
+    .sort((left, right) => left.start - right.start)
 
-  if (relatedAnnotations.length === 0) {
+  if (relatedAnnotations.length === 0 && relatedMatches.length === 0) {
     return [
       {
         text: paragraph.text,
@@ -396,6 +526,8 @@ function buildSegments(paragraph: ReaderParagraph, annotations: StoredAnnotation
         grammarId: null,
         sentenceId: null,
         focusId: null,
+        searchId: null,
+        searchActive: false,
       },
     ]
   }
@@ -407,6 +539,11 @@ function buildSegments(paragraph: ReaderParagraph, annotations: StoredAnnotation
     boundarySet.add(Math.min(annotation.end, paragraph.end))
   }
 
+  for (const match of relatedMatches) {
+    boundarySet.add(Math.max(match.start, paragraph.start))
+    boundarySet.add(Math.min(match.end, paragraph.end))
+  }
+
   const boundaries = [...boundarySet].sort((left, right) => left - right)
   const segments: Array<{
     text: string
@@ -414,6 +551,8 @@ function buildSegments(paragraph: ReaderParagraph, annotations: StoredAnnotation
     grammarId: string | null
     sentenceId: string | null
     focusId: string | null
+    searchId: string | null
+    searchActive: boolean
   }> = []
 
   for (let index = 0; index < boundaries.length - 1; index += 1) {
@@ -424,18 +563,17 @@ function buildSegments(paragraph: ReaderParagraph, annotations: StoredAnnotation
       continue
     }
 
-    const covered = relatedAnnotations.filter((annotation) => annotation.start <= start && annotation.end >= end)
-    const word = covered.find((annotation) => annotation.type === 'word')
-    const grammar = covered.find((annotation) => annotation.type === 'grammar')
-    const sentence = covered.find((annotation) => annotation.type === 'sentence')
-    const focus = covered.find((annotation) => annotation.type === 'focus')
+    const coveredAnnotations = relatedAnnotations.filter((annotation) => annotation.start <= start && annotation.end >= end)
+    const coveredMatch = relatedMatches.find((match) => match.start <= start && match.end >= end)
 
     segments.push({
       text: paragraph.text.slice(start - paragraph.start, end - paragraph.start),
-      wordId: word?.id ?? null,
-      grammarId: grammar?.id ?? null,
-      sentenceId: sentence?.id ?? null,
-      focusId: focus?.id ?? null,
+      wordId: coveredAnnotations.find((annotation) => annotation.type === 'word')?.id ?? null,
+      grammarId: coveredAnnotations.find((annotation) => annotation.type === 'grammar')?.id ?? null,
+      sentenceId: coveredAnnotations.find((annotation) => annotation.type === 'sentence')?.id ?? null,
+      focusId: coveredAnnotations.find((annotation) => annotation.type === 'focus')?.id ?? null,
+      searchId: coveredMatch?.id ?? null,
+      searchActive: coveredMatch?.id === activeSearchId,
     })
   }
 
@@ -452,6 +590,31 @@ function hasOverlappingAnnotation(annotations: StoredAnnotation[], start: number
     <header class="reader-toolbar panel">
       <div class="reader-toolbar__title">
         <h2>{{ title }}</h2>
+      </div>
+      <div class="reader-searchbar">
+        <input
+          v-model="searchQuery"
+          class="reader-searchbar__input"
+          type="text"
+          placeholder="搜索当前文章"
+        />
+        <span v-if="searchQuery.trim()" class="reader-searchbar__count">{{ searchSummary }}</span>
+        <button
+          class="reader-searchbar__button"
+          type="button"
+          :disabled="searchMatches.length === 0"
+          @click="moveSearch(-1)"
+        >
+          上一个
+        </button>
+        <button
+          class="reader-searchbar__button"
+          type="button"
+          :disabled="searchMatches.length === 0"
+          @click="moveSearch(1)"
+        >
+          下一个
+        </button>
       </div>
     </header>
 
@@ -515,12 +678,18 @@ function hasOverlappingAnnotation(annotations: StoredAnnotation[], start: number
           <AnnotationSegment
             v-for="(segment, index) in paragraph.segments"
             :key="`${paragraph.id}-${index}`"
-            :class="{ 'paper__annotated--pulse': pulsingAnnotationId && [segment.wordId, segment.grammarId, segment.sentenceId, segment.focusId].includes(pulsingAnnotationId) }"
+            :class="{
+              'paper__annotated--pulse':
+                pulsingAnnotationId &&
+                [segment.wordId, segment.grammarId, segment.sentenceId, segment.focusId].includes(pulsingAnnotationId),
+            }"
             :text="segment.text"
             :word-id="segment.wordId"
             :grammar-id="segment.grammarId"
             :sentence-id="segment.sentenceId"
             :focus-id="segment.focusId"
+            :search-id="segment.searchId"
+            :search-active="segment.searchActive"
             @annotation-click="handleAnnotationClick"
           />
         </p>

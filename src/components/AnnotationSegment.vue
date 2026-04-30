@@ -5,6 +5,8 @@ defineProps<{
   grammarId: string | null
   sentenceId: string | null
   focusId: string | null
+  searchId: string | null
+  searchActive: boolean
 }>()
 
 const emit = defineEmits<{
@@ -22,13 +24,78 @@ function trigger(annotationId: string | null, event: MouseEvent) {
 
 <template>
   <span
-    v-if="grammarId"
-    class="paper__annotated paper__annotated--grammar"
-    :data-annotation-id="grammarId"
-    @click.stop="!wordId && !sentenceId && !focusId && trigger(grammarId, $event)"
+    :class="[
+      searchId ? 'paper__search-match' : '',
+      searchActive ? 'paper__search-match--active' : '',
+    ]"
+    :data-search-match-id="searchId ?? undefined"
   >
     <span
-      v-if="sentenceId"
+      v-if="grammarId"
+      class="paper__annotated paper__annotated--grammar"
+      :data-annotation-id="grammarId"
+      @click.stop="!wordId && !sentenceId && !focusId && trigger(grammarId, $event)"
+    >
+      <span
+        v-if="sentenceId"
+        class="paper__annotated paper__annotated--sentence"
+        :data-annotation-id="sentenceId"
+        @click.stop="!wordId && !focusId && trigger(sentenceId, $event)"
+      >
+        <span
+          v-if="focusId"
+          class="paper__annotated paper__annotated--focus"
+          :data-annotation-id="focusId"
+          @click.stop="!wordId && trigger(focusId, $event)"
+        >
+          <span
+            v-if="wordId"
+            class="paper__annotated paper__annotated--word"
+            :data-annotation-id="wordId"
+            @click.stop="trigger(wordId, $event)"
+          >
+            {{ text }}
+          </span>
+          <template v-else>{{ text }}</template>
+        </span>
+        <span
+          v-else-if="wordId"
+          class="paper__annotated paper__annotated--word"
+          :data-annotation-id="wordId"
+          @click.stop="trigger(wordId, $event)"
+        >
+          {{ text }}
+        </span>
+        <template v-else>{{ text }}</template>
+      </span>
+      <span
+        v-else-if="focusId"
+        class="paper__annotated paper__annotated--focus"
+        :data-annotation-id="focusId"
+        @click.stop="!wordId && trigger(focusId, $event)"
+      >
+        <span
+          v-if="wordId"
+          class="paper__annotated paper__annotated--word"
+          :data-annotation-id="wordId"
+          @click.stop="trigger(wordId, $event)"
+        >
+          {{ text }}
+        </span>
+        <template v-else>{{ text }}</template>
+      </span>
+      <span
+        v-else-if="wordId"
+        class="paper__annotated paper__annotated--word"
+        :data-annotation-id="wordId"
+        @click.stop="trigger(wordId, $event)"
+      >
+        {{ text }}
+      </span>
+      <template v-else>{{ text }}</template>
+    </span>
+    <span
+      v-else-if="sentenceId"
       class="paper__annotated paper__annotated--sentence"
       :data-annotation-id="sentenceId"
       @click.stop="!wordId && !focusId && trigger(sentenceId, $event)"
@@ -85,61 +152,4 @@ function trigger(annotationId: string | null, event: MouseEvent) {
     </span>
     <template v-else>{{ text }}</template>
   </span>
-  <span
-    v-else-if="sentenceId"
-    class="paper__annotated paper__annotated--sentence"
-    :data-annotation-id="sentenceId"
-    @click.stop="!wordId && !focusId && trigger(sentenceId, $event)"
-  >
-    <span
-      v-if="focusId"
-      class="paper__annotated paper__annotated--focus"
-      :data-annotation-id="focusId"
-      @click.stop="!wordId && trigger(focusId, $event)"
-    >
-      <span
-        v-if="wordId"
-        class="paper__annotated paper__annotated--word"
-        :data-annotation-id="wordId"
-        @click.stop="trigger(wordId, $event)"
-      >
-        {{ text }}
-      </span>
-      <template v-else>{{ text }}</template>
-    </span>
-    <span
-      v-else-if="wordId"
-      class="paper__annotated paper__annotated--word"
-      :data-annotation-id="wordId"
-      @click.stop="trigger(wordId, $event)"
-    >
-      {{ text }}
-    </span>
-    <template v-else>{{ text }}</template>
-  </span>
-  <span
-    v-else-if="focusId"
-    class="paper__annotated paper__annotated--focus"
-    :data-annotation-id="focusId"
-    @click.stop="!wordId && trigger(focusId, $event)"
-  >
-    <span
-      v-if="wordId"
-      class="paper__annotated paper__annotated--word"
-      :data-annotation-id="wordId"
-      @click.stop="trigger(wordId, $event)"
-    >
-      {{ text }}
-    </span>
-    <template v-else>{{ text }}</template>
-  </span>
-  <span
-    v-else-if="wordId"
-    class="paper__annotated paper__annotated--word"
-    :data-annotation-id="wordId"
-    @click.stop="trigger(wordId, $event)"
-  >
-    {{ text }}
-  </span>
-  <template v-else>{{ text }}</template>
 </template>
