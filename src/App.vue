@@ -17,7 +17,8 @@ import type {
   StoredArticle,
 } from './types/ui'
 
-const MIN_DESKTOP_WIDTH = 1100
+const MIN_DESKTOP_WIDTH = 1500
+const MIN_DESKTOP_HEIGHT = 1000
 
 const articles = ref<StoredArticle[]>([])
 const selectedArticleId = ref<number | null>(null)
@@ -47,7 +48,7 @@ const blockDescription = computed(() => {
     return '手机和平板端暂不支持完整操作。为了保证导入、阅读和标注功能正常使用，请在电脑浏览器中打开。'
   }
 
-  return `当前窗口宽度过小。请将浏览器宽度调整到至少 ${MIN_DESKTOP_WIDTH}px，以保证导入、阅读和标注操作完整可用。`
+  return '当前窗口尺寸过小。请放大窗口大小，以保证导入、阅读和标注操作完整可用。'
 })
 
 const blockEyebrow = computed(() => {
@@ -629,7 +630,8 @@ async function readTextFile(file: File) {
 
 function updateRuntimeGuards() {
   isUnsupportedDevice.value = detectUnsupportedDevice()
-  isViewportTooSmall.value = typeof window !== 'undefined' && window.innerWidth < MIN_DESKTOP_WIDTH
+  const { width, height } = getWindowSize()
+  isViewportTooSmall.value = width < MIN_DESKTOP_WIDTH || height < MIN_DESKTOP_HEIGHT
 }
 
 function detectUnsupportedDevice() {
@@ -656,6 +658,20 @@ function detectUnsupportedDevice() {
   }
 
   return false
+}
+
+function getWindowSize() {
+  if (typeof window === 'undefined') {
+    return {
+      width: MIN_DESKTOP_WIDTH,
+      height: MIN_DESKTOP_HEIGHT,
+    }
+  }
+
+  const width = Math.max(window.outerWidth || 0, window.innerWidth || 0)
+  const height = Math.max(window.outerHeight || 0, window.innerHeight || 0)
+
+  return { width, height }
 }
 </script>
 
