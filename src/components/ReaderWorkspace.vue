@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 
+import { hasOverlappingRange } from '../lib/annotations'
 import AnnotationSegment from './AnnotationSegment.vue'
 import type { AnnotationType, ReaderParagraph, StoredAnnotation, ToolItem } from '../types/ui'
 
@@ -322,7 +323,7 @@ function createAnnotation(type: AnnotationType) {
 
   const sameTypeAnnotations = props.annotations.filter((annotation) => annotation.type === type)
 
-  if (hasOverlappingAnnotation(sameTypeAnnotations, selectionDraft.value.start, selectionDraft.value.end)) {
+  if (hasOverlappingRange(sameTypeAnnotations, selectionDraft.value.start, selectionDraft.value.end)) {
     clearSelection()
     return
   }
@@ -580,9 +581,6 @@ function buildSegments(
   return segments
 }
 
-function hasOverlappingAnnotation(annotations: StoredAnnotation[], start: number, end: number) {
-  return annotations.some((annotation) => start < annotation.end && end > annotation.start)
-}
 </script>
 
 <template>

@@ -6,6 +6,14 @@ import LibraryPanel from './components/LibraryPanel.vue'
 import ReaderWorkspace from './components/ReaderWorkspace.vue'
 import SideNav from './components/SideNav.vue'
 import { db } from './db/articles'
+import { hasOverlappingRange } from './lib/annotations'
+import { createUniqueArticleTitle } from './lib/articles'
+import {
+  MIN_DESKTOP_HEIGHT,
+  MIN_DESKTOP_WIDTH,
+  detectUnsupportedDevice,
+  getWindowSize,
+} from './lib/runtime-guards'
 import { annotationGroupTemplates, annotationTools, navItems } from './mockData'
 import type {
   AnnotationGroup,
@@ -16,9 +24,6 @@ import type {
   StoredAnnotation,
   StoredArticle,
 } from './types/ui'
-
-const MIN_DESKTOP_WIDTH = 1500
-const MIN_DESKTOP_HEIGHT = 1000
 
 const articles = ref<StoredArticle[]>([])
 const selectedArticleId = ref<number | null>(null)
@@ -341,7 +346,7 @@ async function handleCreateAnnotation(payload: { start: number; end: number; tex
     (annotation) => annotation.start === payload.start && annotation.end === payload.end,
   )
 
-  if (hasSameAnnotation || hasOverlappingAnnotation(sameTypeAnnotations, payload.start, payload.end)) {
+  if (hasSameAnnotation || hasOverlappingRange(sameTypeAnnotations, payload.start, payload.end)) {
     return
   }
 
@@ -517,10 +522,6 @@ function colorForType(type: AnnotationType): 'blue' | 'orange' | 'yellow' | 'red
   return 'blue'
 }
 
-function hasOverlappingAnnotation(annotations: StoredAnnotation[], start: number, end: number) {
-  return annotations.some((annotation) => start < annotation.end && end > annotation.start)
-}
-
 function splitParagraphs(content: string): ReaderParagraph[] {
   const normalized = normalizeTextContent(content)
   const paragraphs: ReaderParagraph[] = []
@@ -609,30 +610,6 @@ function createId() {
   return `annotation-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-function createUniqueArticleTitle(title: string, existingArticles: Array<Pick<StoredArticle, 'title'>>) {
-  const trimmedTitle = title.trim()
-  const existingTitles = new Set(existingArticles.map((article) => article.title))
-
-  if (!existingTitles.has(trimmedTitle)) {
-    return trimmedTitle
-  }
-
-  const extensionIndex = trimmedTitle.lastIndexOf('.')
-  const hasExtension = extensionIndex > 0
-  const name = hasExtension ? trimmedTitle.slice(0, extensionIndex) : trimmedTitle
-  const extension = hasExtension ? trimmedTitle.slice(extensionIndex) : ''
-
-  let index = 2
-  let candidate = `${name} (${index})${extension}`
-
-  while (existingTitles.has(candidate)) {
-    index += 1
-    candidate = `${name} (${index})${extension}`
-  }
-
-  return candidate
-}
-
 async function readTextFile(file: File) {
   const buffer = await file.arrayBuffer()
   const bytes = new Uint8Array(buffer)
@@ -650,49 +627,16 @@ async function readTextFile(file: File) {
 }
 
 function updateRuntimeGuards() {
-  isUnsupportedDevice.value = detectUnsupportedDevice()
+  isUnsupportedDevice.value =
+    typeof navigator !== 'undefined'
+      ? detectUnsupportedDevice({
+          userAgent: navigator.userAgent,
+          platform: navigator.platform,
+          maxTouchPoints: navigator.maxTouchPoints,
+        })
+      : false
   const { width, height } = getWindowSize()
   isViewportTooSmall.value = width < MIN_DESKTOP_WIDTH || height < MIN_DESKTOP_HEIGHT
-}
-
-function detectUnsupportedDevice() {
-  if (typeof navigator === 'undefined') {
-    return false
-  }
-
-  const userAgent = navigator.userAgent || ''
-  const platform = navigator.platform || ''
-  const maxTouchPoints = navigator.maxTouchPoints || 0
-
-  const isIPhone = /iPhone/i.test(userAgent)
-  const isIPad = /iPad/i.test(userAgent) || (platform === 'MacIntel' && maxTouchPoints > 1)
-  const isAndroid = /Android/i.test(userAgent)
-  const isMobileKeyword = /Mobile|Phone|Windows Phone/i.test(userAgent)
-  const isTabletKeyword = /Tablet|PlayBook|Silk/i.test(userAgent)
-
-  if (isIPhone || isIPad || isTabletKeyword) {
-    return true
-  }
-
-  if (isAndroid || isMobileKeyword) {
-    return true
-  }
-
-  return false
-}
-
-function getWindowSize() {
-  if (typeof window === 'undefined') {
-    return {
-      width: MIN_DESKTOP_WIDTH,
-      height: MIN_DESKTOP_HEIGHT,
-    }
-  }
-
-  const width = Math.max(window.outerWidth || 0, window.innerWidth || 0)
-  const height = Math.max(window.outerHeight || 0, window.innerHeight || 0)
-
-  return { width, height }
 }
 </script>
 
