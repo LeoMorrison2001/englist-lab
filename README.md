@@ -1,5 +1,46 @@
-# Vue 3 + TypeScript + Vite
+# Englist Lab
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+一个面向桌面端的英语阅读与标注工具。
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+## 当前能力
+
+- 导入 `.txt` 文章
+- 本地保存文章与标注数据
+- 文章列表浏览、搜索、重命名、删除
+- 阅读进度记录与恢复
+- 四类标注：`单词 / 句子 / 语法 / 重点`
+- 标注备注、删除、右侧分类查看
+- 当前文章内搜索与结果跳转
+
+## 技术栈
+
+- Vue 3
+- TypeScript
+- Vite
+- Dexie.js
+- IndexedDB
+
+## 本地开发
+
+```bash
+npm install
+npm run dev
+```
+
+## 构建
+
+```bash
+npm run build
+```
+
+## 使用说明
+
+- 仅支持桌面端使用
+- 手机、平板会被阻断提示
+- 桌面端窗口过小时也会提示放大窗口
+- 导入文件类型限制为 `.txt`
+
+## 数据说明
+
+- 文章、阅读进度、标注、备注都保存在当前浏览器本地数据库中
+- 清理浏览器站点数据后，本地内容会被删除

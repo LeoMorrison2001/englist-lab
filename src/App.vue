@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import InspectorPanel from './components/InspectorPanel.vue'
 import LibraryPanel from './components/LibraryPanel.vue'
@@ -32,6 +32,7 @@ const isViewportTooSmall = ref(false)
 
 let focusRequestToken = 0
 let progressSaveTimer: ReturnType<typeof setTimeout> | null = null
+let hasLoadedArticlesOnce = false
 
 const shouldBlockApp = computed(() => isUnsupportedDevice.value || isViewportTooSmall.value)
 
@@ -145,12 +146,23 @@ onMounted(async () => {
     return
   }
 
-  await loadArticles()
+  await ensureArticlesLoaded()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateRuntimeGuards)
 })
+
+watch(
+  () => shouldBlockApp.value,
+  async (isBlocked, wasBlocked) => {
+    if (isBlocked || !wasBlocked) {
+      return
+    }
+
+    await ensureArticlesLoaded()
+  },
+)
 
 async function loadArticles() {
   const storedArticles = await db.articles.orderBy('updatedAt').reverse().toArray()
@@ -163,6 +175,15 @@ async function loadArticles() {
 
   const hasCurrentSelection = storedArticles.some((article) => article.id === selectedArticleId.value)
   selectedArticleId.value = hasCurrentSelection ? selectedArticleId.value : (storedArticles[0].id ?? null)
+}
+
+async function ensureArticlesLoaded() {
+  if (hasLoadedArticlesOnce) {
+    return
+  }
+
+  await loadArticles()
+  hasLoadedArticlesOnce = true
 }
 
 async function importFiles(files: FileList | null) {
